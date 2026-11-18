@@ -45,7 +45,7 @@
     BASE_GATHER: 1,           // resources per gather click
 
     CRIT_MULT: 3,
-    SHIELD_REDUCTION: 0.6,    // shield blocks 60% of incoming damage
+    SHIELD_REDUCTION: 0.8,    // shield blocks 80% of incoming damage
     OVERCLOCK_MULT: 2,
 
     MAX_CLICKS_PER_SEC: 20,   // server-side anti-macro cap (inputs above this are dropped)
