@@ -10,9 +10,8 @@
 
     // Optional TURN relay for online play when two networks can't connect directly
     // (phone on cellular ↔ PC on Wi-Fi, school/corporate networks). Example:
-    // TURN_SERVERS: [{ urls: ['turn:free.expressturn.com:3478'],
-    //                  username: '000000002110454346', credential: 'EnDJqp9bHFwj/941dRqsWLp6A5Y=' }],
-    TURN_SERVERS: [],
+    TURN_SERVERS: [{ urls: ['turn:free.expressturn.com:3478'],
+                      username: '000000002110454346', credential: 'EnDJqp9bHFwj/941dRqsWLp6A5Y=' }],
 
     MATCH_MODES: {            // selectable match lengths
       // optional per-mode startHp overrides START_HP, e.g. blitz: { ..., startHp: 1300 }
