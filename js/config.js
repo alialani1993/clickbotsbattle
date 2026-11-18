@@ -56,7 +56,7 @@
       silver: { label: 'Silver', baseCost: 50,  growth: 1.25 },
       gold:   { label: 'Gold',   baseCost: 100, growth: 1.3 },
     },
-    OFFERS_PER_TIER: 2,       // random choices shown per tier (GDD: random within tier)
+    OFFERS_PER_TIER: 3,       // random choices shown per tier (GDD: random within tier)
   };
 
   // kind: 'stat' = permanent stat change, 'timed' = temporary effect (GDD: shields, overclock)
