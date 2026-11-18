@@ -122,6 +122,12 @@ The join screen and lobby now report which step failed:
 | *Found the room, but your two networks blocked a direct connection* | Matchmaking worked, but the two browsers couldn't reach each other. This is common for phone-on-cellular vs PC-on-Wi-Fi, school or work networks, and some home routers. | Put both devices on the same Wi-Fi, or add a TURN relay (below). |
 | *Timed out connecting to the host* | The host page froze partway through the handshake. | The host keeps the page in front and the guest tries again. |
 
+### Checking the relay
+- **Menu → Test connection** shows how many TURN servers the loaded `config.js` has, and whether the relay accepted the login. Run it on both devices.
+- Open the game with **`?relay=1`** (e.g. `https://<you>.github.io/clickbots/?relay=1`) on both devices to force all traffic through the relay. If that connects on the same Wi-Fi, the relay works.
+- In a match, the HUD shows whether you're connected **direct** or **via relay**.
+- The **build number** at the bottom of the menu tells you whether GitHub Pages is serving the latest files.
+
 ### Adding a TURN relay (recommended for real playtests)
 
 A TURN server relays game traffic when a direct connection is impossible. Several providers have free tiers. Sign up with one (for example ExpressTURN or Metered), then paste the credentials into `js/config.js`:

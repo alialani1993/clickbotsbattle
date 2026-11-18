@@ -12,6 +12,19 @@
 
   let mode = null;        // 'cpu' | 'host' | 'guest'
   let lastSnapAt = 0;     // guest: when the host last sent state
+  let hiddenAt = 0;
+  let route = '';         // 'direct' | 'relay' once connected
+
+  // Keep the phone screen on while hosting/playing online: a sleeping phone can't answer joins.
+  let wakeLock = null;
+  async function keepAwake(on) {
+    try {
+      if (on && !wakeLock && 'wakeLock' in navigator && !document.hidden) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+    } catch (_) { /* not supported / denied: fine */ }
+  }
   const inviteUrl = () => location.origin + location.pathname + '#join=' + $('roomCode').textContent;
   let server = null, cpu = null, host = null, guest = null, loop = null;
 
@@ -49,7 +62,8 @@
   function teardown() {
     stopLoop();
     host && host.close(); guest && guest.close();
-    server = cpu = host = guest = null; mode = null;
+    server = cpu = host = guest = null; mode = null; route = '';
+    keepAwake(false);
     $('ping').textContent = '';
   }
 
@@ -96,6 +110,7 @@
         show('lobby');
       },
       onStatus(text) { if (text) setStatus('lobbyStatus', text); },
+      onRoute(r) { $('ping').textContent = r === 'relay' ? 'via relay' : 'direct'; },
       onGuest() {
         setStatus('lobbyStatus', 'Opponent connected!');
         show('game');
@@ -113,6 +128,7 @@
       onError(text) { toMenu(text, true); },
     });
     host.open();
+    keepAwake(true);
   }
 
   // ---------- guest ----------
@@ -132,12 +148,39 @@
         if (!$('game').classList.contains('active')) show('game');
         UI.render(s);
       },
-      onPing(ms) { $('ping').textContent = ms + ' ms'; },
+      onRoute(r) { route = r; },
+      onPing(ms) { $('ping').textContent = ms + ' ms' + (route ? ' · ' + route : ''); },
       onClosed(text) { toMenu(text, true); },
       onError(text) { toMenu(text, true); },
     });
     UI.onAction = m => guest && guest.send(m);
     guest.join(code);
+    keepAwake(true);
+  }
+
+  // ---------- connection self-test ----------
+  async function runNetTest() {
+    const el = $('netTest');
+    el.hidden = false;
+    el.innerHTML = 'Testing… (up to 8 seconds)';
+    const r = await Net.testIce();
+    const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const line = (ok, label, note) => `<div class="${ok === true ? 'ok' : ok === 'warn' ? 'warn' : 'bad'}">${ok === true ? '✅' : ok === 'warn' ? '⚠️' : '❌'} ${label}${note ? ` <code>${esc(note)}</code>` : ''}</div>`;
+    let html = '';
+    html += line(r.turnCount > 0 ? true : 'bad', `TURN servers in loaded config: ${r.turnCount}`, r.forced ? 'relay-only mode (?relay=1)' : '');
+    if (!r.forced) {
+      html += line(r.host > 0 ? true : 'warn', 'Same-network play');
+      html += line(r.srflx > 0 ? true : 'warn', 'Public address found (STUN)', r.srflx ? '' : 'none');
+    }
+    html += line(r.relay > 0 ? true : 'bad', 'TURN relay reachable and accepted login', r.relayUrls.join(' '));
+    r.errors.slice(0, 4).forEach(e => { html += `<div class="bad"><code>${esc(e)}</code></div>`; });
+    let verdict;
+    if (r.relay > 0) verdict = '<span class="ok">Cross-network play should work on this device. Run this on the other device too.</span>';
+    else if (r.turnCount === 0) verdict = '<span class="bad">This page loaded a config.js with no TURN servers. If you just edited it, GitHub Pages can take a few minutes to update — check the build number below, then reload.</span>';
+    else if (r.errors.some(e => / 401\b/.test(e))) verdict = '<span class="bad">The relay rejected the login (401). Re-copy the username and password (credential) from ExpressTURN.</span>';
+    else verdict = '<span class="bad">Could not get a relay address. Check the urls (host and port) in TURN_SERVERS, or this network blocks the relay\'s ports — try the turns:…:443 URL.</span>';
+    html += `<div class="verdict">${verdict}</div>`;
+    el.innerHTML = html;
   }
 
   // ---------- desktop fixed-size stage ----------
@@ -179,6 +222,7 @@
     $('joinCode').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
 
     $('btnLobbyBack').onclick = () => toMenu('');
+    $('btnNetTest').onclick = runNetTest;
     $('btnCopyLink').onclick = async () => {
       try { await navigator.clipboard.writeText(inviteUrl()); setStatus('lobbyStatus', 'Invite link copied!'); }
       catch (_) { setStatus('lobbyStatus', 'Copy this link: ' + inviteUrl()); }
@@ -196,9 +240,11 @@
 
     // Mobile browsers freeze background tabs; reconnect the moment we're visible again.
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) return;
-      host && host.resume();
+      if (document.hidden) { hiddenAt = performance.now(); return; }
+      const away = hiddenAt ? performance.now() - hiddenAt : 0;
+      host && host.resume(away);
       guest && guest.resume();
+      if (host || guest) keepAwake(true);   // wake locks are released when the page is hidden
     });
     addEventListener('online', () => { host && host.resume(); guest && guest.resume(); });
 

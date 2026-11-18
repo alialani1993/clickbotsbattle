@@ -22,11 +22,17 @@
   const PREFIX = 'clickbots-gdd-v1-';
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
   const RECOVERABLE = ['network', 'socket-error', 'socket-closed', 'server-error', 'disconnected'];
-  const JOIN_RETRIES = 15;          // × 2s ≈ 30s of "waiting for host"
-  const CONNECT_TIMEOUT_MS = 20000; // per attempt, once the room has been found
+  const TUNING = Object.assign({
+    JOIN_RETRIES: 15,        // "room not found" retries, 2s apart (≈30s)
+    ANSWER_RETRIES: 8,       // "host found but not answering" retries
+    ATTEMPT_MS: 9000,        // wait this long for the host to answer before re-sending
+    ICE_EXTRA_MS: 12000,     // extra time once a direct connection is being negotiated
+  }, root.NET_TUNING || {});
 
-  const ICE_FAIL_MSG = 'Found the room, but your two networks blocked a direct connection. ' +
-    'Try both devices on the same Wi-Fi, or add a TURN relay (see README → "Online connection problems").';
+  const ICE_FAIL_MSG = 'Found the room, but your two networks blocked a direct connection. ';
+  const iceHint = () => turnServers().length
+    ? 'A TURN relay is configured but did not work — press "Test connection" on the menu on BOTH devices.'
+    : 'No TURN relay is configured (CONFIG.TURN_SERVERS is empty in the loaded config.js).';
 
   function makeCode() {
     let s = '';
@@ -37,20 +43,97 @@
   function peerAvailable() { return typeof root.Peer === 'function'; }
 
   // Use custom ICE servers only when a TURN relay is configured; otherwise keep PeerJS defaults.
+  // Tolerate common copy/paste shapes from TURN dashboards: `url` vs `urls`,
+  // a single string, or host:port without the "turn:" scheme.
+  function turnServers() {
+    const list = (root.CONFIG && root.CONFIG.TURN_SERVERS) || [];
+    return list.map(s => {
+      let urls = s.urls || s.url || [];
+      if (!Array.isArray(urls)) urls = [urls];
+      urls = urls.map(u => String(u).trim()).filter(Boolean)
+        .map(u => (/^(turns?|stun):/i.test(u) ? u : 'turn:' + u));
+      const out = { urls };
+      if (s.username != null) out.username = String(s.username).trim();
+      if (s.credential != null || s.password != null) out.credential = String(s.credential ?? s.password).trim();
+      return out;
+    }).filter(s => s.urls.length);
+  }
+
+  // ?relay=1 forces all traffic through TURN — a quick way to prove the relay works
+  // even when both devices are on the same Wi-Fi.
+  const forceRelay = () => /[?&]relay=1\b/.test(location.search);
+
+  function iceConfig() {
+    const turn = turnServers();
+    const cfg = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, ...turn] };
+    if (forceRelay()) cfg.iceTransportPolicy = 'relay';
+    return { cfg, turnCount: turn.length };
+  }
+
   function peerOptions() {
-    const turn = (root.CONFIG && root.CONFIG.TURN_SERVERS) || [];
+    const { cfg, turnCount } = iceConfig();
     const opts = { debug: 1 };
-    if (turn.length) {
-      opts.config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, ...turn] };
-    }
+    if (turnCount || forceRelay()) opts.config = cfg;   // otherwise keep PeerJS defaults
     return opts;
   }
 
-  // Report ICE progress so failures say *where* they happened.
+  // Report ICE progress so failures say *where* they happened. PeerJS closes the
+  // RTCPeerConnection as soon as ICE fails, so remember the last real state.
   function watchIce(conn, onState) {
     const pc = conn && conn.peerConnection;
     if (!pc || !pc.addEventListener) return;
-    pc.addEventListener('iceconnectionstatechange', () => onState(pc.iceConnectionState));
+    pc.addEventListener('iceconnectionstatechange', () => {
+      const st = pc.iceConnectionState;
+      if (st !== 'closed') conn._lastIce = st;
+      onState(st === 'closed' && conn._lastIce === 'failed' ? 'failed' : st);
+    });
+  }
+
+  // After connecting: was it direct or through the TURN relay?
+  async function routeOf(conn) {
+    try {
+      const pc = conn.peerConnection;
+      const stats = await pc.getStats();
+      let pair = null;
+      stats.forEach(r => {
+        if (r.type === 'transport' && r.selectedCandidatePairId) pair = stats.get(r.selectedCandidatePairId);
+      });
+      if (!pair) stats.forEach(r => { if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r; });
+      const local = pair && stats.get(pair.localCandidateId), remote = pair && stats.get(pair.remoteCandidateId);
+      if (!local) return '';
+      return (local.candidateType === 'relay' || (remote && remote.candidateType === 'relay')) ? 'relay' : 'direct';
+    } catch (_) { return ''; }
+  }
+
+  // Connection self-test: gather ICE candidates with the configured servers.
+  //   host  = this device's local address (same-network play)
+  //   srflx = public address via STUN (different networks, when routers allow)
+  //   relay = TURN relay works (different networks, always)
+  async function testIce(timeoutMs = 8000) {
+    const { cfg, turnCount } = iceConfig();
+    const res = { turnCount, host: 0, srflx: 0, relay: 0, errors: [], relayUrls: new Set(), forced: forceRelay() };
+    let pc;
+    try { pc = new RTCPeerConnection({ iceServers: cfg.iceServers }); }
+    catch (e) { res.errors.push('Bad ICE server config: ' + e.message); return res; }
+    pc.createDataChannel('test');
+    await new Promise(async resolve => {
+      const done = setTimeout(resolve, timeoutMs);
+      pc.onicecandidate = e => {
+        if (!e.candidate) { clearTimeout(done); return resolve(); }
+        const c = e.candidate, type = c.type || (/ typ (\w+)/.exec(c.candidate) || [])[1];
+        if (type in res) res[type]++;
+        if (type === 'relay' && c.url) res.relayUrls.add(c.url);
+      };
+      pc.onicecandidateerror = e => {
+        if (!e.url || /^stun:stun\.l\.google/.test(e.url)) return;
+        res.errors.push(`${e.url} → ${e.errorCode} ${e.errorText || ''}`.trim());
+      };
+      try { await pc.setLocalDescription(await pc.createOffer()); }
+      catch (e) { res.errors.push(e.message); clearTimeout(done); resolve(); }
+    });
+    pc.close();
+    res.relayUrls = [...res.relayUrls];
+    return res;
   }
 
   function describe(err) {
@@ -141,12 +224,18 @@
       this.timer = setTimeout(fn, delay);
     }
 
-    // Page came back to the foreground: reconnect immediately instead of waiting for backoff.
-    resume() {
+    // Page came back to the foreground. A phone that slept may still *look* connected
+    // to the broker while its socket is dead (guests then get no answer), so after any
+    // real time in the background we force a fresh registration under the same code.
+    resume(hiddenMs = 0) {
       if (this.closed || !this.peer) return;
       this.retry = 0;
-      if (this.peer.destroyed) this.recreate();
-      else if (this.peer.disconnected) this.reconnect();
+      if (this.peer.destroyed) return this.recreate();
+      if (this.peer.disconnected) return this.reconnect();
+      if (hiddenMs > 2000 && !(this.conn && this.conn.open)) {
+        this.status('Refreshing room ' + this.code + '…');
+        try { this.peer.disconnect(); } catch (_) {}   // 'disconnected' handler re-registers
+      }
     }
 
     accept(conn) {
@@ -161,7 +250,11 @@
         if (st === 'checking') this.status('Player found — negotiating connection…');
         if (st === 'failed') { this.status('A player tried to join but the networks blocked a direct connection. See README → "Online connection problems".'); this.conn = null; }
       });
-      conn.on('open', () => { if (conn === this.conn) this.h.onGuest(); });
+      conn.on('open', () => {
+        if (conn !== this.conn) return;
+        this.h.onGuest();
+        setTimeout(async () => { const r = await routeOf(conn); r && this.h.onRoute && this.h.onRoute(r); }, 500);
+      });
       conn.on('data', msg => {
         if (!msg || typeof msg !== 'object') return;
         if (msg.t === 'ping') return conn.send({ t: 'pong', ts: msg.ts });
@@ -186,7 +279,7 @@
       // { onStatus(text), onConnected(), onSnapshot(s), onPing(ms), onClosed(text), onError(text) }
       this.h = handlers;
       this.peer = null; this.conn = null; this.pingTimer = null;
-      this.attempts = 0; this.closed = false; this.connected = false;
+      this.notFound = 0; this.noAnswer = 0; this.closed = false; this.connected = false;
     }
 
     status(t) { this.h.onStatus && this.h.onStatus(t); }
@@ -206,8 +299,9 @@
         if (this.closed || this.connected) return;
         if (err.type === 'peer-unavailable') {
           this.conn = null;
-          if (this.attempts < JOIN_RETRIES) {
-            this.status(`Room ${this.code} not reachable yet — the host may have switched apps. Retrying (${this.attempts}/${JOIN_RETRIES})…`);
+          clearTimeout(this.connTimer);
+          if (++this.notFound <= TUNING.JOIN_RETRIES) {
+            this.status(`Room ${this.code} not reachable yet — the host may have switched apps. Retrying (${this.notFound}/${TUNING.JOIN_RETRIES})…`);
             clearTimeout(this.retryTimer);
             this.retryTimer = setTimeout(() => this.connect(), 2000);
           } else {
@@ -222,27 +316,22 @@
 
     connect() {
       if (this.closed || this.connected) return;
-      this.attempts++;
+      if (this.conn && !this.conn.open) { const old = this.conn; this.conn = null; try { old.close(); } catch (_) {} }
       const conn = this.peer.connect(PREFIX + this.code, { reliable: true, serialization: 'json' });
       this.conn = conn;
       clearTimeout(this.connTimer);
-      this.connTimer = setTimeout(() => {
-        if (conn === this.conn && !conn.open && !this.closed) {
-          const st = conn.peerConnection && conn.peerConnection.iceConnectionState;
-          this.h.onError(st === 'checking' || st === 'failed' ? ICE_FAIL_MSG
-            : 'Timed out connecting to the host. Make sure the host has the game open in the foreground, then try again.');
-        }
-      }, CONNECT_TIMEOUT_MS);
+      this.connTimer = setTimeout(() => this.stuck(conn, false), TUNING.ATTEMPT_MS);
       watchIce(conn, st => {
         if (conn !== this.conn || conn.open) return;
-        if (st === 'checking') this.status('Room found — negotiating a direct connection…');
-        if (st === 'failed') { clearTimeout(this.connTimer); this.h.onError(ICE_FAIL_MSG); }
+        if (st === 'checking') this.status('Room found — negotiating a connection…');
+        if (st === 'failed') { clearTimeout(this.connTimer); this.h.onError(ICE_FAIL_MSG + iceHint()); }
       });
       conn.on('open', () => {
         if (conn !== this.conn) return;
         clearTimeout(this.connTimer);
         this.connected = true;
         this.h.onConnected();
+        setTimeout(async () => { const r = await routeOf(conn); r && this.h.onRoute && this.h.onRoute(r); }, 500);
         this.pingTimer = setInterval(() => conn.open && conn.send({ t: 'ping', ts: performance.now() }), 2000);
       });
       conn.on('data', msg => {
@@ -257,6 +346,27 @@
         if (this.connected) this.h.onClosed('Connection to the host was lost.');
       });
       conn.on('error', () => {});
+    }
+
+    // An attempt didn't open in time: work out why from the WebRTC state.
+    stuck(conn, extended) {
+      if (conn !== this.conn || conn.open || this.closed || this.connected) return;
+      const pc = conn.peerConnection;
+      const ice = pc ? pc.iceConnectionState : 'none', sig = pc ? pc.signalingState : 'none';
+      const detail = ` [ice=${ice}, signal=${sig}, tries=${this.noAnswer + 1}]`;
+      if (ice === 'failed' || conn._lastIce === 'failed') return this.h.onError(ICE_FAIL_MSG + iceHint() + detail);
+      if ((ice === 'checking' || ice === 'connected' || ice === 'completed') && !extended) {
+        this.status('Room found — still negotiating a direct connection…');
+        this.connTimer = setTimeout(() => this.stuck(conn, true), TUNING.ICE_EXTRA_MS);
+        return;
+      }
+      if (ice === 'checking') return this.h.onError(ICE_FAIL_MSG + iceHint() + detail);
+      // No answer from the host (ice 'new' / signal 'have-local-offer'): host page asleep. Re-send.
+      if (++this.noAnswer <= TUNING.ANSWER_RETRIES) {
+        this.status(`Host found but not answering — make sure the host's screen is on with the game open. Retrying (${this.noAnswer}/${TUNING.ANSWER_RETRIES})…`);
+        return this.connect();
+      }
+      this.h.onError('The host never answered. Make sure their screen is on with the game open, then try again.' + detail);
     }
 
     resume() {
@@ -274,5 +384,5 @@
     }
   }
 
-  root.Net = { HostSession, GuestSession, peerAvailable };
+  root.Net = { HostSession, GuestSession, peerAvailable, testIce, routeOf };
 })(window);

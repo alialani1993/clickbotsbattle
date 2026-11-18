@@ -8,10 +8,18 @@
     // distance apart on every monitor. Phones/tablets stay full-screen.
     STAGE: { w: 1120, h: 700 },   // override for testing with ?stage=960x600
 
-    // Optional TURN relay for online play when two networks can't connect directly
-    // (phone on cellular ↔ PC on Wi-Fi, school/corporate networks). Example:
-    TURN_SERVERS: [{ urls: ['turn:free.expressturn.com:3478'],
-                      username: '000000002110454346', credential: 'EnDJqp9bHFwj/941dRqsWLp6A5Y=' }],
+    // TURN relay (ExpressTURN) for online play when two networks can't connect directly
+    // (phone on cellular ↔ PC on Wi-Fi, school/work networks). Keep exactly ONE
+    // TURN_SERVERS entry: a second one later in this object silently overrides it.
+    // Check it in-game: menu → "Test connection".
+    TURN_SERVERS: [{
+      urls: [
+        'turn:free.expressturn.com:3478',                // UDP (fastest)
+        'turn:free.expressturn.com:3478?transport=tcp',  // TCP fallback for networks that block UDP
+      ],
+      username: '000000002110454346',
+      credential: 'EnDJqp9bHFwj/941dRqsWLp6A5Y=',
+    }],
 
     MATCH_MODES: {            // selectable match lengths
       // optional per-mode startHp overrides START_HP, e.g. blitz: { ..., startHp: 1300 }

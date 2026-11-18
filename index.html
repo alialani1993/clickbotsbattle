@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=8">
   <!-- PeerJS: WebRTC data channels for online play (host browser acts as the server) -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
 </head>
@@ -56,6 +56,8 @@
           <button id="btnJoin" class="btn">Join</button>
         </div>
         <p id="netStatus" class="net-status"></p>
+        <button id="btnNetTest" class="btn ghost small">Test connection</button>
+        <div id="netTest" class="net-test" hidden></div>
       </div>
 
       <details class="howto">
@@ -70,6 +72,7 @@
           <li><span class="pip g"></span> green dots are your clicks, <span class="pip r"></span> red dots are your opponent's.</li>
         </ul>
       </details>
+      <p class="build">build 8</p>
     </div>
   </section>
 
@@ -147,12 +150,12 @@
     </div>
   </section>
 
-  <script src="js/config.js"></script>
-  <script src="js/server.js"></script>
-  <script src="js/ai.js"></script>
-  <script src="js/sfx.js"></script>
-  <script src="js/net.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/main.js"></script>
+  <script src="js/config.js?v=8"></script>
+  <script src="js/server.js?v=8"></script>
+  <script src="js/ai.js?v=8"></script>
+  <script src="js/sfx.js?v=8"></script>
+  <script src="js/net.js?v=8"></script>
+  <script src="js/ui.js?v=8"></script>
+  <script src="js/main.js?v=8"></script>
 </body>
 </html>
