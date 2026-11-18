@@ -11,6 +11,8 @@
   };
 
   let mode = null;        // 'cpu' | 'host' | 'guest'
+  let lastSnapAt = 0;     // guest: when the host last sent state
+  const inviteUrl = () => location.origin + location.pathname + '#join=' + $('roomCode').textContent;
   let server = null, cpu = null, host = null, guest = null, loop = null;
 
   const getMode = () => store.get('cb_mode', CONFIG.DEFAULT_MODE);
@@ -89,9 +91,11 @@
     host = new Net.HostSession({
       onOpen(code) {
         $('roomCode').textContent = code;
+        $('inviteUrl').textContent = inviteUrl();
         setStatus('lobbyStatus', 'Room open. Waiting for a player to join…');
         show('lobby');
       },
+      onStatus(text) { if (text) setStatus('lobbyStatus', text); },
       onGuest() {
         setStatus('lobbyStatus', 'Opponent connected!');
         show('game');
@@ -118,11 +122,13 @@
     setStatus('netStatus', 'Connecting…');
     UI.myId = 'p2';
     guest = new Net.GuestSession({
+      onStatus(text) { setStatus('netStatus', text); },
       onConnected() {
         setStatus('netStatus', 'Connected! Waiting for host…');
         guest.send({ a: 'name', name: myName() });
       },
       onSnapshot(s) {
+        lastSnapAt = performance.now();
         if (!$('game').classList.contains('active')) show('game');
         UI.render(s);
       },
@@ -174,10 +180,37 @@
 
     $('btnLobbyBack').onclick = () => toMenu('');
     $('btnCopyLink').onclick = async () => {
-      const url = location.origin + location.pathname + '#join=' + $('roomCode').textContent;
-      try { await navigator.clipboard.writeText(url); setStatus('lobbyStatus', 'Invite link copied!'); }
-      catch (_) { setStatus('lobbyStatus', url); }
+      try { await navigator.clipboard.writeText(inviteUrl()); setStatus('lobbyStatus', 'Invite link copied!'); }
+      catch (_) { setStatus('lobbyStatus', 'Copy this link: ' + inviteUrl()); }
     };
+    // Native share sheet on phones (no need to leave the page to copy the link)
+    if (navigator.share) {
+      $('btnShare').hidden = false;
+      $('btnShare').onclick = async () => {
+        try {
+          await navigator.share({ title: 'ClickBots PvP', text: `Join my ClickBots match! Room ${$('roomCode').textContent}`, url: inviteUrl() });
+          setStatus('lobbyStatus', 'Invite sent. Keep this page open — the game starts when they join.');
+        } catch (_) { /* share cancelled */ }
+      };
+    }
+
+    // Mobile browsers freeze background tabs; reconnect the moment we're visible again.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      host && host.resume();
+      guest && guest.resume();
+    });
+    addEventListener('online', () => { host && host.resume(); guest && guest.resume(); });
+
+    // Guest: warn when the host stops sending state (host switched apps, bad connection).
+    setInterval(() => {
+      if (mode !== 'guest' || !$('game').classList.contains('active')) return;
+      const quiet = performance.now() - lastSnapAt;
+      if (quiet > 15000) toMenu('The host stopped responding (they may have closed the game).', true);
+      else if (quiet > 2500) $('ping').textContent = '⚠ waiting for host…';
+    }, 1000);
+    // Closing/leaving the page: tell the other side right away instead of letting it time out.
+    addEventListener('pagehide', () => { host && host.close(); guest && guest.close(); });
 
     $('btnRematch').onclick = () => UI.onAction && UI.onAction({ a: 'rematch' });
     $('btnMenu').onclick = () => toMenu('');

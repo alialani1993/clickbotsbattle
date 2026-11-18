@@ -80,10 +80,13 @@
       <p>Share this room code · <b id="lobbyMode"></b></p>
       <div id="roomCode" class="room-code">-----</div>
       <div class="row center">
-        <button id="btnCopyLink" class="btn">Copy invite link</button>
+        <button id="btnShare" class="btn primary" hidden>Share invite</button>
+        <button id="btnCopyLink" class="btn">Copy link</button>
         <button id="btnLobbyBack" class="btn ghost">Cancel</button>
       </div>
+      <p id="inviteUrl" class="invite-url"></p>
       <p id="lobbyStatus" class="net-status"></p>
+      <p class="hint">On a phone it's fine to switch apps to send the invite. The room stays reserved, and it reconnects when you come back. Keep this page open in front once they join.</p>
     </div>
   </section>
 

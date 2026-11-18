@@ -111,6 +111,36 @@ Clicking speed depends on how far the mouse travels between targets (Fitts's law
 - To preview another size, add `?stage=1280x720` to the URL.
 - A fixed size can't control browser zoom, OS display scaling or mouse sensitivity.
 
+## Online connection problems
+
+The join screen and lobby now report which step failed:
+
+| Message | Meaning | Fix |
+|---|---|---|
+| *Room … not reachable yet, retrying* | The host's page isn't connected to matchmaking right now (usually the host switched apps). | The host returns to the game tab. The guest keeps retrying for about 30 seconds. |
+| *Room … not found* | Retries ran out, or the code is wrong. | Check the code. The host should have the game open in front. |
+| *Found the room, but your two networks blocked a direct connection* | Matchmaking worked, but the two browsers couldn't reach each other. This is common for phone-on-cellular vs PC-on-Wi-Fi, school or work networks, and some home routers. | Put both devices on the same Wi-Fi, or add a TURN relay (below). |
+| *Timed out connecting to the host* | The host page froze partway through the handshake. | The host keeps the page in front and the guest tries again. |
+
+### Adding a TURN relay (recommended for real playtests)
+
+A TURN server relays game traffic when a direct connection is impossible. Several providers have free tiers. Sign up with one (for example ExpressTURN or Metered), then paste the credentials into `js/config.js`:
+
+```js
+TURN_SERVERS: [{
+  urls: ['turn:YOUR_HOST:3478?transport=udp', 'turn:YOUR_HOST:3478?transport=tcp', 'turns:YOUR_HOST:443?transport=tcp'],
+  username: 'YOUR_USERNAME',
+  credential: 'YOUR_PASSWORD',
+}],
+```
+
+Anyone can read these credentials in the page source. That's fine for a prototype; most providers let you cap usage.
+
+### Mobile behavior
+- A phone host can switch apps to send the invite (there's a **Share invite** button). The room code stays reserved, and the lobby reconnects when you come back.
+- While the host's page is in the background, nobody can join. Guests keep retrying until the host returns.
+- During a match, the host's page must stay in front. If it doesn't, the guest sees "⚠ waiting for host…" and is dropped after 15 seconds.
+
 ## QA hook
 
 In the browser console, `ClickBotsDebug().server` gives you the live server object, so you can inspect or change state while you test.
@@ -119,5 +149,5 @@ In the browser console, `ClickBotsDebug().server` gives you the live server obje
 
 - **The host is the authority.** A host who edits the JS could cheat. A dedicated server would fix this later, and `server.js` has no DOM dependencies, so it would port to Node with little work.
 - **Keep the host's tab in the foreground.** Browsers throttle timers in background tabs, which makes the game stutter for both players.
-- **Some networks block peer-to-peer connections** (strict corporate or school NATs). PeerJS's free broker only provides STUN. If players on a locked-down network can't connect, add a TURN server to the `Peer` options in `js/net.js`.
+- **Some networks block peer-to-peer connections.** See "Online connection problems" above for adding a TURN relay (`CONFIG.TURN_SERVERS`).
 - Online play loads PeerJS from unpkg and fonts from Google Fonts, so it needs internet access. vs-CPU works offline.
