@@ -114,7 +114,7 @@
         const card = e.target.closest('.card');
         if (!card || card.disabled) return;
         e.preventDefault();
-        this.onAction && this.onAction({ a: 'buy', tier: card.dataset.tier, idx: +card.dataset.idx });
+        this.onAction && this.onAction({ a: 'buy', tier: card.dataset.tier, idx: +card.dataset.idx, id: card.dataset.id });
       });
     },
 
@@ -187,9 +187,11 @@
       this.upgIcons('opUpg', op.upgrades);
       this.botState(this.el.meBot, me);
       this.botState(this.el.opBot, op);
-      this.shop(me, s.phase === 'playing');
+      this.shop(me, s.phase === 'playing', s.offers);
       this.activity(me, op);
 
+      // If I lost a buy race this tick, the "Too slow!" message replaces "Enemy took…" for that card.
+      this._missed = new Set((s.events || []).filter(e => e.k === 'miss' && e.pid === myId).map(e => e.tier + e.idx));
       for (const ev of s.events || []) this.event(ev, myId);
       this.phase(s, myId);
     },
@@ -244,16 +246,18 @@
       if (tagEl._k !== k) { tagEl._k = k; tagEl.innerHTML = tags.map(x => `<span class="effect-tag">${x}</span>`).join(''); }
     },
 
-    shop(me, active) {
-      const key = JSON.stringify([me.offers, me.costs]);
+    shop(me, active, offers) {
+      const key = JSON.stringify([offers, me.costs]);
       if (this._keys.shop !== key) {
         this._keys.shop = key;
+        this.el.shop.style.setProperty('--offers', CONFIG.OFFERS_PER_TIER);
+        this.el.shop.classList.toggle('many', CONFIG.OFFERS_PER_TIER >= 3);
         this.el.shop.innerHTML = Object.entries(CONFIG.TIERS).map(([tier, info]) => `
           <div class="tier ${tier}">
             <div class="tier-head"><span>${info.label}</span><span class="tier-cost">◆ ${me.costs[tier]}</span></div>
             <div class="cards">
-              ${me.offers[tier].map((id, idx) => { const u = UPGRADE_BY_ID[id]; return `
-                <button class="card" data-tier="${tier}" data-idx="${idx}" data-cost="${me.costs[tier]}" title="${u.desc}">
+              ${offers[tier].map((id, idx) => { const u = UPGRADE_BY_ID[id]; return `
+                <button class="card" data-tier="${tier}" data-idx="${idx}" data-id="${id}" data-cost="${me.costs[tier]}" title="${u.desc}">
                   <span class="card-ico">${u.icon}</span>
                   <span class="card-txt"><div class="card-name">${u.name}</div><div class="card-desc">${u.desc}</div></span>
                 </button>`; }).join('')}
@@ -289,9 +293,20 @@
       } else if (ev.k === 'buy') {
         const u = UPGRADE_BY_ID[ev.id];
         this.float(botOf(ev.pid), `${u.icon} ${u.name}`, 'buy');
-        if (ev.pid === myId) SFX.buy();
+        const card = this.card(ev.tier, ev.idx);
+        if (ev.pid === myId) { SFX.buy(); card && restart(card, 'fresh', 700); }
+        else if (card) {           // the opponent won the race: show what they took
+          restart(card, 'taken', 900);
+          if (!this._missed.has(ev.tier + ev.idx)) this.float(card, `Enemy took ${u.icon} ${u.name}`, 'taken');
+        }
+      } else if (ev.k === 'miss' && ev.pid === myId) {
+        const u = UPGRADE_BY_ID[ev.id], card = this.card(ev.tier, ev.idx);
+        this.float(card || this.el.shop, `Too slow! ${u ? u.icon + ' ' + u.name : ''} was taken`, 'miss');
+        SFX.hurt();
       }
     },
+
+    card(tier, idx) { return this.el.shop.querySelector(`.card[data-tier="${tier}"][data-idx="${idx}"]`); },
 
     pip(target, mine) {
       const d = document.createElement('div');

@@ -1,6 +1,6 @@
 # 🤖 ClickBots PvP: Playable Prototype
 
-A 2-minute competitive clicker built from the *ClickBots PvP* GDD. Click the enemy bot to attack, click your own bot to repair, and click the crystal to mine resources. Spend resources on random Bronze, Silver and Gold upgrades. You win by destroying the enemy bot, or by having the most HP when the timer runs out.
+A 2-minute competitive clicker built from the *ClickBots PvP* GDD. Click the enemy bot to attack, click your own bot to repair, and click the crystal to mine resources. Spend resources on Bronze, Silver and Gold upgrades from a **shared shop**: both players see the same random cards, and when anyone buys one, a new card replaces it for both, so it's a race to the upgrade. You win by destroying the enemy bot, or by having the most HP when the timer runs out.
 
 **Modes**
 - **vs CPU**: offline, with three difficulty levels.
@@ -48,6 +48,7 @@ The GDD calls for a server-authoritative model: clients send ServerRPCs, the ser
 | Your bot on the LEFT, enemy on the RIGHT, same screen for both | each client renders the snapshot from its own player's point of view |
 | See each other's clicks 🔴🟢 | click events in each snapshot become green (yours) or red (opponent's) pips |
 | Reset after each match | `GameServer.reset()` runs on rematch |
+| Shared shop / race to the upgrade | `GameServer.offers` is one set for the match. `buy` messages carry the card's id, so if the opponent took it first the server rejects the buy (no charge) and sends a `miss` event |
 | CPS and activity bars | the server records clicks and output in 0.5s buckets (`record()`, `rate()`) and sends rolling rates in each snapshot |
 
 The same `GameServer` drives vs-CPU mode. The CPU plays through `rpc()` like a human would, so it can't cheat.

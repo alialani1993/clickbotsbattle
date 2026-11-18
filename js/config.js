@@ -37,7 +37,7 @@
     COUNTDOWN_SECONDS: 3,
     TICK_MS: 50,              // server simulation / broadcast rate (20 Hz)
 
-    START_HP: 2500,
+    START_HP: 5000,
     START_RESOURCES: 0,
 
     BASE_ATTACK: 5,           // damage per attack click
@@ -52,9 +52,9 @@
 
     // Per-tier price; each purchase in a tier raises that tier's price.
     TIERS: {
-      bronze: { label: 'Bronze', baseCost: 20,  growth: 1.2 },
-      silver: { label: 'Silver', baseCost: 50,  growth: 1.25 },
-      gold:   { label: 'Gold',   baseCost: 100, growth: 1.3 },
+      bronze: { label: 'Bronze', baseCost: 20,  growth: 1.1 },
+      silver: { label: 'Silver', baseCost: 50,  growth: 1.5 },
+      gold:   { label: 'Gold',   baseCost: 100, growth: 2 },
     },
     OFFERS_PER_TIER: 3,       // random choices shown per tier (GDD: random within tier)
   };
@@ -64,19 +64,19 @@
     // ---------- BRONZE ----------
     { id: 'fists',     tier: 'bronze', icon: '👊', name: 'Sharpened Fists', desc: '+3 attack per click',      kind: 'stat', mod: { atk: 3 } },
     { id: 'patchkit',  tier: 'bronze', icon: '🩹', name: 'Patch Kit',       desc: '+3 repair per click',      kind: 'stat', mod: { rep: 3 } },
-    { id: 'pickaxe',   tier: 'bronze', icon: '⛏️', name: 'Better Pickaxe',  desc: '+3 resource per click',    kind: 'stat', mod: { gat: 1 } },
-    { id: 'minidrill', tier: 'bronze', icon: '🔩', name: 'Mini Drill',      desc: 'Auto: +5 resource / sec',  kind: 'stat', mod: { autoGat: 5 } },
+    { id: 'pickaxe',   tier: 'bronze', icon: '⛏️', name: 'Better Pickaxe',  desc: '+3 resources per click',    kind: 'stat', mod: { gat: 3 } },
+    { id: 'minidrill', tier: 'bronze', icon: '🔩', name: 'Mini Drill',      desc: 'Auto: +5 resources / sec',  kind: 'stat', mod: { autoGat: 5 } },
     { id: 'minilaser', tier: 'bronze', icon: '⚠️', name: 'Mini Laser',      desc: 'Auto: 5 damage / sec',  kind: 'stat', mod: { autoAtk: 5 } },
-    { id: 'autorepait', tier: 'bronze', icon: '🔧', name: 'Auto Repair',      desc: 'Auto: 5 repair / sec',  kind: 'stat', mod: { autoRep: 5 } },
+    { id: 'autorepair', tier: 'bronze', icon: '🔧', name: 'Auto Repair',      desc: 'Auto: 5 repair / sec',  kind: 'stat', mod: { autoRep: 5 } },
     { id: 'plating',   tier: 'bronze', icon: '🛡️', name: 'Scrap Plating',   desc: '+150 max HP (and heals it)', kind: 'stat', mod: { maxHp: 150 } },
 
     // ---------- SILVER ----------
-    { id: 'piston',    tier: 'silver', icon: '🥊', name: 'Piston Punch',    desc: '+10 attack per click',      kind: 'stat', mod: { atk: 8 } },
-    { id: 'welder',    tier: 'silver', icon: '🔥', name: 'Arc Welder',      desc: '+10 repair per click',      kind: 'stat', mod: { rep: 8 } },
-    { id: 'excavator', tier: 'silver', icon: '🚜', name: 'Excavator Arm',   desc: '+10 resources per click',   kind: 'stat', mod: { gat: 3 } },
-    { id: 'turret',    tier: 'silver', icon: '🔫', name: 'Auto-Turret',     desc: 'Auto: 15 damage / sec',     kind: 'stat', mod: { autoAtk: 6 } },
-    { id: 'drone',     tier: 'silver', icon: '🛸', name: 'Repair Drone',    desc: 'Auto: 15 repair / sec',     kind: 'stat', mod: { autoRep: 5 } },
-    { id: 'rig',       tier: 'silver', icon: '🏭', name: 'Mining Rig',      desc: 'Auto: +15 resources / sec', kind: 'stat', mod: { autoGat: 4 } },
+    { id: 'piston',    tier: 'silver', icon: '🥊', name: 'Piston Punch',    desc: '+10 attack per click',      kind: 'stat', mod: { atk: 10 } },
+    { id: 'welder',    tier: 'silver', icon: '🔥', name: 'Arc Welder',      desc: '+10 repair per click',      kind: 'stat', mod: { rep: 10 } },
+    { id: 'excavator', tier: 'silver', icon: '🚜', name: 'Excavator Arm',   desc: '+10 resources per click',   kind: 'stat', mod: { gat: 10 } },
+    { id: 'turret',    tier: 'silver', icon: '🔫', name: 'Auto-Turret',     desc: 'Auto: 15 damage / sec',     kind: 'stat', mod: { autoAtk: 15 } },
+    { id: 'drone',     tier: 'silver', icon: '🛸', name: 'Repair Drone',    desc: 'Auto: 15 repair / sec',     kind: 'stat', mod: { autoRep: 15 } },
+    { id: 'rig',       tier: 'silver', icon: '🏭', name: 'Mining Rig',      desc: 'Auto: +15 resources / sec', kind: 'stat', mod: { autoGat: 15 } },
 
     // ---------- GOLD ----------
     { id: 'overdrive', tier: 'gold', icon: '⚡', name: 'Overdrive Core',   desc: 'Attack clicks ×1.5 (stacks)', kind: 'stat', mod: { atkMult: 0.5 } },

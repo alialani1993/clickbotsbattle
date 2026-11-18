@@ -34,7 +34,6 @@
       effects: { shield: 0, overclock: 0 },
       upgrades: {},                    // id -> count
       tierBuys: { bronze: 0, silver: 0, gold: 0 },
-      offers: { bronze: [], silver: [], gold: [] },
       stats: { clicks: 0, dmg: 0, healed: 0, mined: 0 },
       _clickTimes: [],                 // for rate limiting
       _acc: { atk: 0, rep: 0, gat: 0 },// fractional auto accumulators
@@ -68,7 +67,9 @@
     reset() {
       const hp = CONFIG.MATCH_MODES[this.mode].startHp || CONFIG.START_HP;
       this.players = { p1: newPlayer('p1', this.names.p1, hp), p2: newPlayer('p2', this.names.p2, hp) };
-      for (const pid of PIDS) for (const t of Object.keys(CONFIG.TIERS)) this.rollOffers(pid, t);
+      // One shared shop for both players: buying a card replaces it for everyone (race to the upgrade).
+      this.offers = {};
+      for (const t of Object.keys(CONFIG.TIERS)) this.rollOffers(t);
       this.timeLeft = this.matchSeconds;
       this.elapsed = 0;
       this._bucketT = 0;
@@ -98,13 +99,23 @@
       return Math.round(t.baseCost * Math.pow(t.growth, this.players[pid].tierBuys[tier]));
     }
 
-    rollOffers(pid, tier) {
+    rollOffers(tier) {
       const pool = UPGRADES.filter(u => u.tier === tier).map(u => u.id);
       const picks = [];
       while (picks.length < CONFIG.OFFERS_PER_TIER && pool.length) {
         picks.push(pool.splice(Math.floor(this.rng() * pool.length), 1)[0]);
       }
-      this.players[pid].offers[tier] = picks;
+      this.offers[tier] = picks;
+    }
+
+    // Replace one bought card with a new random upgrade not already on display
+    // (and, when the pool allows, not the one just bought).
+    rerollSlot(tier, idx, boughtId) {
+      const shown = this.offers[tier];
+      const all = UPGRADES.filter(u => u.tier === tier).map(u => u.id);
+      let pool = all.filter(id => !shown.includes(id) && id !== boughtId);
+      if (!pool.length) pool = all.filter(id => !shown.includes(id) || id === boughtId);
+      shown[idx] = pool[Math.floor(this.rng() * pool.length)];
     }
 
     applyUpgrade(p, u) {
@@ -160,7 +171,10 @@
       if (msg.a === 'buy') {
         const tier = msg.tier;
         if (!CONFIG.TIERS[tier]) return;
-        const id = p.offers[tier][msg.idx];
+        const id = this.offers[tier][msg.idx];
+        // The client says which upgrade it clicked. If the other player already took
+        // that card, the slot now holds something else: reject instead of buying it.
+        if (msg.id && msg.id !== id) { this.events.push({ k: 'miss', pid, tier, idx: msg.idx, id: msg.id }); return; }
         const u = UPGRADE_BY_ID[id];
         if (!u) return;
         const cost = this.tierCost(pid, tier);
@@ -168,8 +182,8 @@
         p.res -= cost;
         p.tierBuys[tier]++;
         this.applyUpgrade(p, u);
-        this.rollOffers(pid, tier);
-        this.events.push({ k: 'buy', pid, id, tier });
+        this.rerollSlot(tier, msg.idx, id);
+        this.events.push({ k: 'buy', pid, id, tier, idx: msg.idx });
       }
     }
 
@@ -302,7 +316,7 @@
         atk: +(p.atk * p.atkMult).toFixed(1), rep: p.rep, gat: p.gat, crit: p.crit,
         autoAtk: p.autoAtk, autoRep: p.autoRep, autoGat: p.autoGat,
         effects: { shield: +p.effects.shield.toFixed(1), overclock: +p.effects.overclock.toFixed(1) },
-        upgrades: p.upgrades, offers: p.offers,
+        upgrades: p.upgrades,
         costs: Object.fromEntries(Object.keys(CONFIG.TIERS).map(t => [t, this.tierCost(p.id, t)])),
         stats: {
           clicks: p.stats.clicks, dmg: Math.round(p.stats.dmg), healed: Math.round(p.stats.healed), mined: Math.round(p.stats.mined),
@@ -319,6 +333,7 @@
       const snap = {
         phase: this.phase, round: this.round,
         mode: this.mode, matchSeconds: this.matchSeconds,
+        offers: this.offers,
         timeLeft: +this.timeLeft.toFixed(2),
         countdown: +this.countdown.toFixed(2),
         winner: this.winner, reason: this.reason,

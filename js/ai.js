@@ -13,9 +13,9 @@
 
   // Rough value of each upgrade to the CPU (higher = buy first).
   const VALUE = {
-    fists: 3, patchkit: 2, pickaxe: 4, minidrill: 4, plating: 2,
+    fists: 3, patchkit: 2, pickaxe: 4, minidrill: 5, plating: 2, minilaser: 5, autorepair: 3,
     piston: 6, welder: 4, excavator: 6, turret: 7, drone: 5, rig: 7,
-    overdrive: 9, matrix: 7, laser: 10, nanos: 7, shield: 6, overclock: 8,
+    overdrive: 9, matrix: 7, laser: 10, nanos: 7, terraform: 8, shield: 6, overclock: 8,
   };
 
   class CpuBot {
@@ -76,20 +76,20 @@
       for (const tier of Object.keys(CONFIG.TIERS)) {
         const cost = me.costs[tier];
         if (me.res < cost) continue;
-        me.offers[tier].forEach((id, idx) => {
+        s.offers[tier].forEach((id, idx) => {
           let v = VALUE[id] || 1;
           const u = UPGRADE_BY_ID[id];
           if (u.kind === 'timed' && me.effects[u.effect] > 2) v -= 5;
           if (id === 'shield' && op.autoAtk + op.atk > 20) v += 3;
-          if ((id === 'patchkit' || id === 'welder' || id === 'drone' || id === 'nanos') && me.hp / me.maxHp > 0.85) v -= 2;
+          if ((id === 'patchkit' || id === 'autorepair' || id === 'welder' || id === 'drone' || id === 'nanos') && me.hp / me.maxHp > 0.85) v -= 2;
           if ((u.mod && (u.mod.autoGat || u.mod.gat)) && s.timeLeft < 40) v -= 4;
-          if (!best || v > best.v) best = { tier, idx, v };
+          if (!best || v > best.v) best = { tier, idx, id, v };
         });
       }
       if (!best) return false;
       // Save for a higher tier sometimes instead of buying junk
       if (best.v < 3 && this.rng() < this.d.smart * 0.7) return false;
-      this.send({ a: 'buy', tier: best.tier, idx: best.idx });
+      this.send({ a: 'buy', tier: best.tier, idx: best.idx, id: best.id });
       return true;
     }
   }
