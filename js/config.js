@@ -3,7 +3,20 @@
  * Shared by host ("server") and guest so both sides agree on names/costs. */
 (function (root) {
   const CONFIG = {
-    MATCH_SECONDS: 120,       // GDD: 2 minutes per match
+    MATCH_SECONDS: 120,       // GDD: 2 minutes per match (default mode)
+    MATCH_MODES: {            // selectable match lengths
+      // optional per-mode startHp overrides START_HP, e.g. blitz: { ..., startHp: 1300 }
+      blitz:    { label: 'Blitz',    seconds: 60 },
+      standard: { label: 'Standard', seconds: 120 },
+      marathon: { label: 'Marathon', seconds: 300 },
+    },
+    DEFAULT_MODE: 'standard',
+
+    CPS_WINDOW: 5,            // seconds averaged for the live clicks-per-second readout
+    ACTIVITY_WINDOW: 10,      // seconds averaged for the activity bars
+    // Activity bars: a bar is full when it hits the larger of the two players' rates,
+    // but never scales below these floors (so 1 dmg/s vs 0 doesn't read as "maxed").
+    ACTIVITY_FLOOR: { dmg: 25, rep: 15, res: 6 },
     COUNTDOWN_SECONDS: 3,
     TICK_MS: 50,              // server simulation / broadcast rate (20 Hz)
 

@@ -91,6 +91,7 @@
       this.el.meBot.innerHTML = robotSVG('#33e6b0', '#127a5e', 'me') + '<div class="effect-tags"></div>';
       this.el.opBot.innerHTML = robotSVG('#ff4f6d', '#8f1d33', 'op') + '<div class="effect-tags"></div>';
       this.el.node.innerHTML = crystalSVG();
+      this.initActivity();
 
       const bind = (el, a) => el.addEventListener('pointerdown', e => {
         e.preventDefault();
@@ -111,6 +112,44 @@
       });
     },
 
+    // ---------- activity bars (what each player is spending effort on) ----------
+    initActivity() {
+      const ACTS = [['dmg', '⚔️', 'Damage'], ['rep', '🛠️', 'Repair'], ['res', '◆', 'Mine']];
+      const side = who => `<div class="act-side ${who}"><div class="act-bar"><i class="m"></i><i class="a"></i></div><span class="v">0</span></div>`;
+      const el = document.createElement('div');
+      el.id = 'activity';
+      el.className = 'act act-columns';
+      el.innerHTML = ACTS.map(([k, ico, lbl]) => `
+        <div class="act-row" data-k="${k}">
+          ${side('me')}
+          <div class="act-lbl"><span class="act-ico">${ico}</span><span class="act-txt">${lbl}</span></div>
+          ${side('op')}
+        </div>`).join('') +
+        `<div class="act-legend"><span><i class="sw me"></i>You</span><span><i class="sw op"></i>Enemy</span><span><i class="sw auto"></i>Auto</span><span class="act-win">per sec · last ${CONFIG.ACTIVITY_WINDOW}s</span></div>`;
+      document.querySelector('.lane.mid').appendChild(el);   // paired columns under the crystal
+      this.act = {};
+      el.querySelectorAll('.act-row').forEach(r => {
+        const g = s => ({ m: r.querySelector(`.${s} .m`), a: r.querySelector(`.${s} .a`), v: r.querySelector(`.${s} .v`) });
+        this.act[r.dataset.k] = { me: g('me'), op: g('op') };
+      });
+    },
+
+    activity(me, op) {
+      if (!this.act) return;
+      for (const k of ['dmg', 'rep', 'res']) {
+        const [mm, ma] = me.activity[k], [om, oa] = op.activity[k];
+        const scale = Math.max(mm + ma, om + oa, CONFIG.ACTIVITY_FLOOR[k]);
+        const set = (d, m, a) => {
+          d.m.style.setProperty('--p', (m / scale * 100) + '%');
+          d.a.style.setProperty('--p', (a / scale * 100) + '%');
+          const t = m + a, txt = t >= 10 ? Math.round(t) : t.toFixed(1);
+          if (d.v.textContent !== txt) d.v.textContent = txt;
+        };
+        set(this.act[k].me, mm, ma);
+        set(this.act[k].op, om, oa);
+      }
+    },
+
     resetRound() {
       this.el.meBot.classList.remove('dead');
       this.el.opBot.classList.remove('dead');
@@ -129,7 +168,10 @@
       $('meName').textContent = me.name; $('opName').textContent = op.name;
       this.hp('me', me); this.hp('op', op);
       const t = $('timer');
-      t.textContent = fmtTime(s.phase === 'waiting' || s.phase === 'countdown' ? CONFIG.MATCH_SECONDS : s.timeLeft);
+      t.textContent = fmtTime(s.phase === 'waiting' || s.phase === 'countdown' ? s.matchSeconds : s.timeLeft);
+      const ml = $('modeLabel'), modeTxt = CONFIG.MATCH_MODES[s.mode].label;
+      if (ml.textContent !== modeTxt) ml.textContent = modeTxt;
+      this.cps($('meCps'), me.cps); this.cps($('opCps'), op.cps);
       t.classList.toggle('low', s.phase === 'playing' && s.timeLeft <= 15);
 
       $('resCount').textContent = me.res;
@@ -140,9 +182,17 @@
       this.botState(this.el.meBot, me);
       this.botState(this.el.opBot, op);
       this.shop(me, s.phase === 'playing');
+      this.activity(me, op);
 
       for (const ev of s.events || []) this.event(ev, myId);
       this.phase(s, myId);
+    },
+
+    cps(el, v) {
+      const k = v.toFixed(1);
+      if (el._k === k) return; el._k = k;
+      el.innerHTML = `⚡<b>${k}</b><span class="cps-unit"> CPS</span>`;
+      el.classList.toggle('hot', v >= 8);
     },
 
     hp(side, p) {
@@ -316,6 +366,8 @@
             row('Repaired', me.stats.healed, op.stats.healed) +
             row('Mined', me.stats.mined, op.stats.mined) +
             row('Clicks', me.stats.clicks, op.stats.clicks) +
+            row('Avg CPS', me.stats.avgCps.toFixed(1), op.stats.avgCps.toFixed(1)) +
+            row('Peak CPS', me.stats.peakCps.toFixed(1), op.stats.peakCps.toFixed(1)) +
             row('Upgrades', Object.values(me.upgrades).reduce((a, b) => a + b, 0), Object.values(op.upgrades).reduce((a, b) => a + b, 0));
         }
         const opId = myId === 'p1' ? 'p2' : 'p1';

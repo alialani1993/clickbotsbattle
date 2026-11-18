@@ -45,10 +45,13 @@
     }
 
     chooseClick(s, me, op) {
-      const elapsed = CONFIG.MATCH_SECONDS - s.timeLeft;
+      const frac = 1 - s.timeLeft / (s.matchSeconds || CONFIG.MATCH_SECONDS); // 0 → 1 over the match
       const myPct = me.hp / me.maxHp, opPct = op.hp / op.maxHp;
 
-      let wGather = elapsed < 25 ? 0.55 : elapsed < 80 ? 0.3 : 0.12;
+      // early: invest in economy; scales with match length (Blitz / Standard / Marathon)
+      const early = Math.min(25, (s.matchSeconds || 120) * 0.2);
+      const elapsed = frac * (s.matchSeconds || 120);
+      let wGather = elapsed < early ? 0.55 : frac < 0.66 ? 0.3 : 0.12;
       let wRepair = 0;
       if (myPct < 0.98) wRepair = (1 - myPct) * 0.9;
       if (me.hp < op.hp && myPct < 0.5) wRepair += 0.35;

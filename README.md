@@ -6,6 +6,13 @@ A 2-minute competitive clicker built from the *ClickBots PvP* GDD. Click the ene
 - **vs CPU**: offline, with three difficulty levels.
 - **Online 1v1**: one player hosts and shares a 5-letter room code or an invite link. The other player joins with it.
 
+**Match length**: Blitz (1:00), Standard (2:00, the default) or Marathon (5:00). Pick it on the menu. In online matches the host's choice applies.
+
+**Reading your opponent**
+- **Live CPS**: next to each name, an average of clicks per second over the last 5 seconds (the CPU's too).
+- **Activity bars** under the crystal: for damage, repair and mining, your column (teal) sits beside your opponent's (red). Each shows output per second over the last 10 seconds. The striped part is auto-clicker output. The taller of the two columns in a pair is full height, so you're always comparing yourself with your opponent.
+- The **results screen** adds average and peak CPS for both players.
+
 It's plain HTML, CSS and JS with no build step, so it runs on GitHub Pages as-is.
 
 ---
@@ -41,6 +48,7 @@ The GDD calls for a server-authoritative model: clients send ServerRPCs, the ser
 | Your bot on the LEFT, enemy on the RIGHT, same screen for both | each client renders the snapshot from its own player's point of view |
 | See each other's clicks 🔴🟢 | click events in each snapshot become green (yours) or red (opponent's) pips |
 | Reset after each match | `GameServer.reset()` runs on rematch |
+| CPS and activity bars | the server records clicks and output in 0.5s buckets (`record()`, `rate()`) and sends rolling rates in each snapshot |
 
 The same `GameServer` drives vs-CPU mode. The CPU plays through `rpc()` like a human would, so it can't cheat.
 
@@ -50,15 +58,25 @@ The server also caps each player at 20 clicks/sec (`MAX_CLICKS_PER_SEC`) to blun
 
 ## Tuning
 
-All the numbers are in **`js/config.js`**: match length, HP, per-click values, tier prices and price growth, and the full upgrade pool, including the timed Shield and Overclock effects. Add an upgrade by adding one line to `UPGRADES`.
+All the numbers are in **`js/config.js`**: match modes, HP, per-click values, tier prices and price growth, the CPS and activity-bar windows, and the full upgrade pool, including the timed Shield and Overclock effects. Add an upgrade by adding one line to `UPGRADES`. To give a mode its own starting HP, add `startHp` to that mode in `MATCH_MODES`.
 
 To check balance after a change, run the headless simulator:
 
 ```bash
-node tools/balance-sim.js
+node tools/balance-sim.js            # standard
+node tools/balance-sim.js blitz
+node tools/balance-sim.js marathon
 ```
 
-It plays 200 CPU-vs-CPU matches per pairing and reports win rates, knockout rate and average match length. With the current numbers, Normal vs Normal is about 50/50, averages about 95 seconds, and roughly 10% of matches go to the timer.
+It plays 200 CPU-vs-CPU matches per pairing and reports win rates, knockout rate, average match length and average CPS. With 2,500 HP in every mode, Normal vs Normal comes out about 50/50 in each.
+
+| Mode | Avg length | Ended by knockout |
+|---|---|---|
+| Blitz | 60s | ~0% (almost always decided on HP at time-up) |
+| Standard | ~95s | ~90% |
+| Marathon | ~95s | 100% (auto-clickers end it before the clock matters) |
+
+To make Marathon run closer to 5 minutes, slow the late game in that mode, for example with steeper upgrade price growth. Raising HP alone doesn't do it: even 15,000 HP only stretched matches to about 3 minutes.
 
 ---
 
@@ -76,6 +94,10 @@ js/sfx.js           procedural sound effects (WebAudio, no asset files)
 js/main.js          menus and wiring
 tools/balance-sim.js
 ```
+
+## QA hook
+
+In the browser console, `ClickBotsDebug().server` gives you the live server object, so you can inspect or change state while you test.
 
 ## Known prototype limits
 

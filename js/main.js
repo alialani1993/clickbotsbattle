@@ -13,6 +13,17 @@
   let mode = null;        // 'cpu' | 'host' | 'guest'
   let server = null, cpu = null, host = null, guest = null, loop = null;
 
+  const getMode = () => store.get('cb_mode', CONFIG.DEFAULT_MODE);
+  function setMode(m) {
+    if (!CONFIG.MATCH_MODES[m]) m = CONFIG.DEFAULT_MODE;
+    store.set('cb_mode', m);
+    document.querySelectorAll('#modeSeg button').forEach(b => {
+      const on = b.dataset.mode === m;
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', on);
+    });
+  }
+  const modeText = m => { const t = CONFIG.MATCH_MODES[m].seconds; return `${CONFIG.MATCH_MODES[m].label} · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+
   const myName = () => ($('nameInput').value.trim() || 'Player').slice(0, 16);
   const setStatus = (id, text, err) => { const el = $(id); el.textContent = text || ''; el.classList.toggle('err', !!err); };
 
@@ -28,6 +39,9 @@
       onSnap(server.snapshot(), dt);
     }, CONFIG.TICK_MS);
   }
+  // For playtesting/QA from the browser console: ClickBotsDebug().server
+  window.ClickBotsDebug = () => ({ server, cpu, mode });
+
   function stopLoop() { if (loop) clearInterval(loop); loop = null; }
 
   function teardown() {
@@ -49,7 +63,7 @@
     teardown();
     mode = 'cpu';
     const diff = $('difficulty').value;
-    server = new GameServer({ names: { p1: myName(), p2: `CPU (${diff})` } });
+    server = new GameServer({ names: { p1: myName(), p2: `CPU (${diff})` }, mode: getMode() });
     cpu = new CpuBot('p2', diff, m => server.rpc('p2', m));
     UI.myId = 'p1';
     UI.onAction = m => server && server.rpc('p1', m);
@@ -67,7 +81,8 @@
     teardown();
     mode = 'host';
     setStatus('netStatus', 'Creating room…');
-    server = new GameServer({ names: { p1: myName(), p2: 'Guest' } });
+    server = new GameServer({ names: { p1: myName(), p2: 'Guest' }, mode: getMode() });
+    $('lobbyMode').textContent = modeText(getMode());
     UI.myId = 'p1';
     UI.onAction = m => server && server.rpc('p1', m);
 
@@ -125,6 +140,8 @@
     $('nameInput').value = store.get('cb_name', '');
     $('nameInput').addEventListener('change', () => store.set('cb_name', myName()));
     $('difficulty').value = store.get('cb_diff', 'normal');
+    setMode(getMode());
+    document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
     $('difficulty').addEventListener('change', e => store.set('cb_diff', e.target.value));
 
     $('btnCpu').onclick = () => { SFX.unlock(); store.set('cb_name', myName()); playCpu(); };
