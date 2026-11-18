@@ -11,7 +11,7 @@ A 2-minute competitive clicker built from the *ClickBots PvP* GDD. Click the ene
 **Reading your opponent**
 - **Live CPS**: next to each name, an average of clicks per second over the last 5 seconds (the CPU's too).
 - **Activity bars** under the crystal: for damage, repair and mining, your column (teal) sits beside your opponent's (red). Each shows output per second over the last 10 seconds. The striped part is auto-clicker output. The taller of the two columns in a pair is full height, so you're always comparing yourself with your opponent.
-- The **results screen** adds average and peak CPS for both players.
+- The **results screen** adds average and peak CPS for both players, plus an **HP lead graph**: above the axis (teal) you had more HP, below (red) the enemy did. Gold upgrades are pinned on the timeline (yours above, the enemy's below) so you can see what swung the match.
 
 It's plain HTML, CSS and JS with no build step, so it runs on GitHub Pages as-is.
 
@@ -51,7 +51,7 @@ The GDD calls for a server-authoritative model: clients send ServerRPCs, the ser
 | Shared shop / race to the upgrade | `GameServer.offers` is one set for the match. `buy` messages carry the card's id, so if the opponent took it first the server rejects the buy (no charge) and sends a `miss` event |
 | CPS and activity bars | the server records clicks and output in 0.5s buckets (`record()`, `rate()`) and sends rolling rates in each snapshot |
 
-The same `GameServer` drives vs-CPU mode. The CPU plays through `rpc()` like a human would, so it can't cheat.
+The same `GameServer` drives vs-CPU mode. The CPU plays through `rpc()` like a human would, so it can't cheat. Difficulty (Easy, Normal, Hard, Extreme) is set by `CPU_DIFFICULTY` in `config.js`; `cps` is the main knob. It shops by **cost/benefit**: each offered card is scored as expected HP swing over the rest of the match divided by its price, and it will save up for a better Silver or Gold card instead of buying the cheapest thing it can afford.
 
 The server also caps each player at 20 clicks/sec (`MAX_CLICKS_PER_SEC`) to blunt macros.
 
@@ -69,32 +69,24 @@ node tools/balance-sim.js blitz
 node tools/balance-sim.js marathon
 ```
 
-It plays 200 CPU-vs-CPU matches per pairing and reports win rates, knockout rate, average match length and average CPS. With 2,500 HP in every mode, Normal vs Normal comes out about 50/50 in each.
+It plays 200 CPU-vs-CPU matches per pairing and reports win rates, knockout rate, average match length and average CPS.
 
-| Mode | Avg length | Ended by knockout |
-|---|---|---|
-| Blitz | 60s | ~0% (almost always decided on HP at time-up) |
-| Standard | ~95s | ~90% |
-| Marathon | ~95s | 100% (auto-clickers end it before the clock matters) |
+**Max HP** is 1,000 in every mode by default (a menu setting can override it; the host's choice applies online).
 
-To make Marathon run closer to 5 minutes, slow the late game in that mode, for example with steeper upgrade price growth. Raising HP alone doesn't do it: even 15,000 HP only stretched matches to about 3 minutes.
+To keep about **75% of matches ending by knockout and 25% on time**, longer modes run a slower economy. Each mode in `MATCH_MODES` has a `priceMult` (all tier prices) and a `powerMult` (all upgrade effects; shop cards show the scaled values):
 
----
+| Mode | priceMult | powerMult | Knockouts | Avg length | First upgrade |
+|---|---|---|---|---|---|
+| Blitz (1:00) | ×1.15 | ×0.47 | 75% | ~50s | ~10s |
+| Standard (2:00) | ×2 | ×0.32 | 72% | ~105s | ~16s |
+| Marathon (5:00) | ×3.5 | ×0.225 | 74% | ~255s | ~21s |
 
-## Files
+These numbers come from Normal vs Normal cost/benefit CPUs, 200+ matches each. What I learned while tuning:
+- **Per-purchase price growth barely matters.** The first few purchases decide the economy.
+- **Knockout rate is very sensitive to powerMult.** Change it in steps of about 0.01 and re-check.
+- **Matches are calibrated for players who save for Gold.** Humans who only buy Bronze will see more time-outs.
 
-```
-index.html          screens: menu, lobby, game
-css/style.css       layout and FX (responsive: desktop, phone portrait and landscape)
-js/config.js        tuning and upgrade pool
-js/server.js        authoritative simulation (also runs in Node)
-js/ai.js            CPU opponent
-js/net.js           PeerJS host/guest transport
-js/ui.js            renderer, robot art (inline SVG), floating numbers and pips
-js/sfx.js           procedural sound effects (WebAudio, no asset files)
-js/main.js          menus and wiring
-tools/balance-sim.js
-```
+Run experiments without editing config.js: `node tools/balance-lab.js '{"modes":["standard"],"power":0.9}' 200` (pace/power multiply on top of the config).
 
 ## Fixed-size game area on desktop (fairness)
 

@@ -10,7 +10,7 @@
  * for automated balance tests.
  */
 (function (root) {
-  const { CONFIG, UPGRADES, UPGRADE_BY_ID } =
+  const { CONFIG, UPGRADES, UPGRADE_BY_ID, scaledMod, modePrice } =
     (typeof module !== 'undefined' && module.exports) ? require('./config.js') : root;
 
   const PIDS = ['p1', 'p2'];
@@ -53,10 +53,19 @@
       this.rematch = { p1: false, p2: false };
       this.round = 0;
       this.setMode(opts.mode || CONFIG.DEFAULT_MODE);
+      this.setStartHp(opts.startHp);
       this.reset();
     }
 
     // ---------- lifecycle ----------
+    // Max HP setting (null = the mode's default). Takes effect at the next reset/start.
+    setStartHp(hp) {
+      hp = Math.round(+hp);
+      this.startHp = hp >= CONFIG.HP_MIN && hp <= CONFIG.HP_MAX ? hp : null;
+    }
+
+    baseHp() { return this.startHp || CONFIG.MATCH_MODES[this.mode].startHp || CONFIG.START_HP; }
+
     setMode(mode) {                    // only takes effect at the next reset/start
       if (!CONFIG.MATCH_MODES[mode]) return;
       this.mode = mode;
@@ -65,7 +74,7 @@
     }
 
     reset() {
-      const hp = CONFIG.MATCH_MODES[this.mode].startHp || CONFIG.START_HP;
+      const hp = this.baseHp();
       this.players = { p1: newPlayer('p1', this.names.p1, hp), p2: newPlayer('p2', this.names.p2, hp) };
       // One shared shop for both players: buying a card replaces it for everyone (race to the upgrade).
       this.offers = {};
@@ -77,6 +86,9 @@
       this.winner = null; this.reason = null;
       this.rematch = { p1: false, p2: false };
       this._autoTimer = 0;
+      // HP timeline for the results graph: one [p1Hp, p2Hp] sample per second + purchases
+      this.history = { dt: 1, hp: [[this.players.p1.hp, this.players.p2.hp]], buys: [] };
+      this._histT = 0;
     }
 
     start() {                          // called when both players are present
@@ -96,7 +108,7 @@
     // ---------- upgrades ----------
     tierCost(pid, tier) {
       const t = CONFIG.TIERS[tier];
-      return Math.round(t.baseCost * Math.pow(t.growth, this.players[pid].tierBuys[tier]));
+      return Math.round(t.baseCost * modePrice(this.mode) * Math.pow(t.growth, this.players[pid].tierBuys[tier]));
     }
 
     rollOffers(tier) {
@@ -122,7 +134,7 @@
       if (u.kind === 'timed') {
         p.effects[u.effect] = Math.max(p.effects[u.effect], 0) + u.duration;
       } else {
-        for (const [k, v] of Object.entries(u.mod)) {
+        for (const [k, v] of Object.entries(scaledMod(u, this.mode))) {   // per-mode power
           if (k === 'maxHp') { p.maxHp += v; p.hp = Math.min(p.maxHp, p.hp + v); }
           else p[k] += v;
         }
@@ -184,6 +196,7 @@
         this.applyUpgrade(p, u);
         this.rerollSlot(tier, msg.idx, id);
         this.events.push({ k: 'buy', pid, id, tier, idx: msg.idx });
+        this.history.buys.push([+this.elapsed.toFixed(1), pid, id]);
       }
     }
 
@@ -242,6 +255,11 @@
 
       this.timeLeft = Math.max(0, this.timeLeft - dt);
       this.elapsed += dt;
+      this._histT += dt;
+      while (this._histT >= this.history.dt) {
+        this._histT -= this.history.dt;
+        this.history.hp.push([Math.round(this.players.p1.hp), Math.round(this.players.p2.hp)]);
+      }
       this._bucketT += dt;
       while (this._bucketT >= BUCKET) {
         this._bucketT -= BUCKET;
@@ -300,6 +318,8 @@
     }
 
     finish(winner, reason) {
+      this.history.hp.push([Math.round(Math.max(0, this.players.p1.hp)), Math.round(Math.max(0, this.players.p2.hp))]);
+      this.history.end = +this.elapsed.toFixed(2);
       this.phase = 'over';
       this.winner = winner;
       this.reason = reason;
@@ -338,6 +358,7 @@
         countdown: +this.countdown.toFixed(2),
         winner: this.winner, reason: this.reason,
         rematch: { ...this.rematch },
+        history: this.phase === 'over' ? this.history : undefined,   // only sent with the results
         players: { p1: pub(this.players.p1), p2: pub(this.players.p2) },
         events: this.events,
       };

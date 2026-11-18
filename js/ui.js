@@ -2,7 +2,7 @@
  * Pure view: takes server snapshots and draws them. Inputs are forwarded
  * through ui.onAction(msg); the UI never changes game state itself. */
 (function (root) {
-  const { CONFIG, UPGRADE_BY_ID } = root;
+  const { CONFIG, UPGRADE_BY_ID, describeUpgrade } = root;
   const $ = id => document.getElementById(id);
 
   // ---------- art ----------
@@ -168,6 +168,7 @@
       const myId = this.myId, opId = myId === 'p1' ? 'p2' : 'p1';
       const me = s.players[myId], op = s.players[opId];
 
+      this._mode = s.mode;
       if (s.round !== this._round) { this._round = s.round; this.resetRound(); }
 
       // HUD
@@ -207,7 +208,7 @@
       const pct = Math.max(0, p.hp / p.maxHp * 100);
       $(side + 'HpFill').style.width = pct + '%';
       $(side + 'HpGhost').style.width = pct + '%';
-      $(side + 'HpText').textContent = `${p.hp} / ${p.maxHp}`;
+      $(side + 'HpText').textContent = `${p.hp.toLocaleString('en-US')} / ${p.maxHp.toLocaleString('en-US')}`;
     },
 
     statsLine(el, p) {
@@ -226,7 +227,7 @@
       if (this._keys[id] === key) return; this._keys[id] = key;
       $(id).innerHTML = Object.entries(upgrades).map(([uid, n]) => {
         const u = UPGRADE_BY_ID[uid];
-        return `<span class="upg-icon" title="${u.name}: ${u.desc}">${u.icon}${n > 1 ? `<sup>×${n}</sup>` : ''}</span>`;
+        return `<span class="upg-icon" title="${u.name}: ${describeUpgrade(u, this._mode)}">${u.icon}${n > 1 ? `<sup>×${n}</sup>` : ''}</span>`;
       }).join('');
     },
 
@@ -247,7 +248,7 @@
     },
 
     shop(me, active, offers) {
-      const key = JSON.stringify([offers, me.costs]);
+      const key = JSON.stringify([offers, me.costs, this._mode]);
       if (this._keys.shop !== key) {
         this._keys.shop = key;
         this.el.shop.style.setProperty('--offers', CONFIG.OFFERS_PER_TIER);
@@ -257,9 +258,9 @@
             <div class="tier-head"><span>${info.label}</span><span class="tier-cost">◆ ${me.costs[tier]}</span></div>
             <div class="cards">
               ${offers[tier].map((id, idx) => { const u = UPGRADE_BY_ID[id]; return `
-                <button class="card" data-tier="${tier}" data-idx="${idx}" data-id="${id}" data-cost="${me.costs[tier]}" title="${u.desc}">
+                <button class="card" data-tier="${tier}" data-idx="${idx}" data-id="${id}" data-cost="${me.costs[tier]}" title="${describeUpgrade(u, this._mode)}">
                   <span class="card-ico">${u.icon}</span>
-                  <span class="card-txt"><div class="card-name">${u.name}</div><div class="card-desc">${u.desc}</div></span>
+                  <span class="card-txt"><div class="card-name">${u.name}</div><div class="card-desc">${describeUpgrade(u, this._mode)}</div></span>
                 </button>`; }).join('')}
             </div>
           </div>`).join('');
@@ -304,6 +305,66 @@
         this.float(card || this.el.shop, `Too slow! ${u ? u.icon + ' ' + u.name : ''} was taken`, 'miss');
         SFX.hurt();
       }
+    },
+
+    // ---------- results: HP-difference graph ----------
+    // Above the axis (teal) = you had more HP; below (red) = the enemy did.
+    // Gold-tier purchases are pinned on the timeline (yours above, enemy's below) to show the swings.
+    hpGraph(s, myId) {
+      const el = $('ovGraph'), h = s.history;
+      el.closest('.overlay-card').dataset.graph = 'on';
+      if (!h || h.hp.length < 2) { el.innerHTML = ''; return; }
+      const mine = myId === 'p1' ? 0 : 1;
+      const diff = h.hp.map(r => r[mine] - r[1 - mine]);
+      const T = h.end || (diff.length - 1) * h.dt;
+      const tAt = i => Math.min(T, i * h.dt);
+      // Draw at the real on-screen width so text stays legible on phones (no SVG down-scaling).
+      const W = Math.round(Math.min(600, Math.max(300, el.clientWidth || 600)));
+      const golds = h.buys.filter(([, , uid]) => UPGRADE_BY_ID[uid] && UPGRADE_BY_ID[uid].tier === 'gold');
+      const H = 206, L = 40, R = 12, top = 26, bot = 40;
+      const midY = top + (H - top - bot) / 2, half = (H - top - bot) / 2;
+      const max = Math.ceil(Math.max(50, ...diff.map(Math.abs)) / 50) * 50;
+      const x = t => L + (t / T) * (W - L - R), y = d => midY - (d / max) * half;
+      const fmtT = t => Math.floor(t / 60) + ':' + String(Math.round(t % 60)).padStart(2, '0');
+      const id = 'g' + Math.random().toString(36).slice(2, 7);
+      const pts = diff.map((d, i) => `${x(tAt(i)).toFixed(1)},${y(d).toFixed(1)}`);
+      const area = `M${x(0)},${midY} L${pts.join(' L')} L${x(T)},${midY} Z`;
+      const dAt = t => diff[Math.min(diff.length - 1, Math.round(t / h.dt))];
+
+      // Icons bought close together are nudged apart (min 16px); the dashed line keeps the true time.
+      const lastX = { me: -1e9, op: -1e9 };
+      const marks = golds.map(([t, pid, uid]) => {
+        const u = UPGRADE_BY_ID[uid], mineBuy = pid === myId, side = mineBuy ? 'me' : 'op';
+        const tx = x(Math.min(t, T));
+        const ix = Math.min(W - R - 6, Math.max(tx, lastX[side] + 16)); lastX[side] = ix;
+        const iconY = mineBuy ? top - 9 : H - bot + 17, edgeY = mineBuy ? top - 4 : H - bot + 4, lineY = y(dAt(t));
+        return `<path d="M${ix.toFixed(1)},${edgeY} L${tx.toFixed(1)},${(edgeY + (mineBuy ? 6 : -6))} L${tx.toFixed(1)},${lineY.toFixed(1)}" fill="none" stroke="${mineBuy ? 'var(--me)' : 'var(--op)'}" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <text x="${ix.toFixed(1)}" y="${iconY}" font-size="13" text-anchor="middle"><title>${mineBuy ? 'You' : 'Enemy'}: ${u.name} at ${fmtT(t)}</title>${u.icon}</text>`;
+      }).join('');
+
+      el.innerHTML = `<div class="g-head"><span>HP lead over time</span><span class="g-key"><i class="me"></i>You ahead <i class="op"></i>Enemy ahead</span></div>
+        <svg viewBox="0 0 ${W} ${H}" class="g-svg" role="img" aria-label="HP difference over time">
+          <defs>
+            <clipPath id="${id}a"><rect x="0" y="0" width="${W}" height="${midY}"/></clipPath>
+            <clipPath id="${id}b"><rect x="0" y="${midY}" width="${W}" height="${H}"/></clipPath>
+            <linearGradient id="${id}ga" x1="0" x2="0" y1="${top}" y2="${midY}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="var(--me)" stop-opacity=".55"/><stop offset="1" stop-color="var(--me)" stop-opacity=".08"/></linearGradient>
+            <linearGradient id="${id}gb" x1="0" x2="0" y1="${midY}" y2="${H - bot}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="var(--op)" stop-opacity=".08"/><stop offset="1" stop-color="var(--op)" stop-opacity=".55"/></linearGradient>
+          </defs>
+          <line x1="${L}" x2="${W - R}" y1="${top}" y2="${top}" stroke="var(--line)" stroke-dasharray="3 4"/>
+          <line x1="${L}" x2="${W - R}" y1="${H - bot}" y2="${H - bot}" stroke="var(--line)" stroke-dasharray="3 4"/>
+          ${marks}
+          <line x1="${L}" x2="${W - R}" y1="${midY}" y2="${midY}" stroke="var(--muted)" stroke-opacity=".6"/>
+          <path d="${area}" fill="url(#${id}ga)" clip-path="url(#${id}a)"/>
+          <path d="${area}" fill="url(#${id}gb)" clip-path="url(#${id}b)"/>
+          <polyline points="${pts.join(' ')}" fill="none" stroke="var(--me)" stroke-width="2.2" stroke-linejoin="round" clip-path="url(#${id}a)"/>
+          <polyline points="${pts.join(' ')}" fill="none" stroke="var(--op)" stroke-width="2.2" stroke-linejoin="round" clip-path="url(#${id}b)"/>
+          <circle cx="${x(T)}" cy="${y(diff[diff.length - 1])}" r="4" fill="${diff[diff.length - 1] >= 0 ? 'var(--me)' : 'var(--op)'}" stroke="#0b0f1e" stroke-width="2"/>
+          <text x="${L - 6}" y="${top + 9}" font-size="11" fill="var(--me)" text-anchor="end">+${max}</text>
+          <text x="${L - 6}" y="${midY + 4}" font-size="11" fill="var(--muted)" text-anchor="end">0</text>
+          <text x="${L - 6}" y="${H - bot}" font-size="11" fill="var(--op)" text-anchor="end">−${max}</text>
+          ${[0, T / 2, T].map(t => `<text x="${x(t)}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="${t === 0 ? 'start' : t === T ? 'end' : 'middle'}">${fmtT(t)}</text>`).join('')}
+        </svg>
+        ${golds.length ? '<div class="g-foot">Gold upgrades: yours above the graph, the enemy\'s below</div>' : ''}`;
     },
 
     card(tier, idx) { return this.el.shop.querySelector(`.card[data-tier="${tier}"][data-idx="${idx}"]`); },
@@ -355,7 +416,7 @@
       if (s.phase === 'countdown') {
         const n = Math.ceil(s.countdown);
         ov.className = 'overlay countdown';
-        $('ovButtons').style.display = 'none'; $('ovStats').innerHTML = ''; sub.textContent = '';
+        $('ovButtons').style.display = 'none'; $('ovStats').innerHTML = ''; $('ovGraph').innerHTML = ''; sub.textContent = '';
         if (this._lastCount !== n) { this._lastCount = n; title.className = 'ov-title big'; title.textContent = n; void title.offsetWidth; SFX.tick(); }
         return;
       }
@@ -382,7 +443,7 @@
           const row = (label, a, b) => `<div class="l">${a}</div><div class="m">${label}</div><div class="r">${b}</div>`;
           $('ovStats').innerHTML =
             row('', me.name, op.name) +
-            row('HP left', me.hp, op.hp) +
+            row('HP left', me.hp.toLocaleString('en-US'), op.hp.toLocaleString('en-US')) +
             row('Damage dealt', me.stats.dmg, op.stats.dmg) +
             row('Repaired', me.stats.healed, op.stats.healed) +
             row('Mined', me.stats.mined, op.stats.mined) +
@@ -390,6 +451,7 @@
             row('Avg CPS', me.stats.avgCps.toFixed(1), op.stats.avgCps.toFixed(1)) +
             row('Peak CPS', me.stats.peakCps.toFixed(1), op.stats.peakCps.toFixed(1)) +
             row('Upgrades', Object.values(me.upgrades).reduce((a, b) => a + b, 0), Object.values(op.upgrades).reduce((a, b) => a + b, 0));
+          this.hpGraph(s, myId);
         }
         const opId = myId === 'p1' ? 'p2' : 'p1';
         const btn = $('btnRematch');

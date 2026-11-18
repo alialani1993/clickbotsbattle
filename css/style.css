@@ -100,6 +100,10 @@ input:focus, select:focus { border-color: var(--me); }
 .seg button small { color: var(--muted); font-variant-numeric: tabular-nums; }
 .seg button.on { border-color: var(--me); background: rgba(51,230,176,.12); box-shadow: inset 0 0 0 1px var(--me); }
 .seg button.on b { color: var(--me); }
+.hp-row { align-items: center; margin-top: 8px; margin-bottom: 0; }
+.hp-row .hp-label { flex: none; font-size: 13px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-right: 2px; }
+.hp-row select { flex: 2; }
+.hp-row input { flex: 1; min-width: 90px; }
 .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
 
 /* ---------- Game layout ----------
@@ -294,6 +298,16 @@ body.fixed-stage { background: radial-gradient(1400px 800px at 50% 40%, #151c3d 
 .ov-title.lose { color: var(--op); }
 .ov-title.big { font-size: 120px; animation: pop .9s ease-out; text-shadow: 0 0 40px rgba(255,255,255,.4); }
 .ov-sub { color: var(--muted); margin: 6px 0 14px; }
+.ov-graph { margin: 0 0 12px; text-align: left; }
+.ov-graph:empty { display: none; }
+.g-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; flex-wrap: wrap; }
+.g-key { text-transform: none; letter-spacing: 0; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
+.g-key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-left: 6px; }
+.g-key i.me { background: var(--me); } .g-key i.op { background: var(--op); }
+.g-svg { width: 100%; height: auto; display: block; background: rgba(5,8,20,.45); border: 1px solid var(--line); border-radius: 10px; font-family: var(--font); }
+.g-foot { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.overlay { overflow-y: auto; }
+.overlay-card[data-graph] { width: min(640px, 100%); }
 .ov-stats { display: grid; grid-template-columns: 1fr auto 1fr; gap: 4px 12px; font-size: 14px; margin-bottom: 18px; }
 .ov-stats .l { text-align: right; color: var(--me); font-weight: 700; }
 .ov-stats .r { text-align: left; color: var(--op); font-weight: 700; }

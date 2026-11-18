@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=17">
   <!-- PeerJS: WebRTC data channels for online play (host browser acts as the server) -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
 </head>
@@ -31,6 +31,11 @@
           <button data-mode="standard" role="radio"><b>Standard</b><small>2:00</small></button>
           <button data-mode="marathon" role="radio"><b>Marathon</b><small>5:00</small></button>
         </div>
+        <div class="row hp-row">
+          <label for="hpSelect" class="hp-label">Max HP</label>
+          <select id="hpSelect" aria-label="Max HP"></select>
+          <input id="hpCustom" type="number" inputmode="numeric" min="100" max="1000000" step="100" placeholder="HP" hidden>
+        </div>
         <p class="hint">Applies to vs CPU and to matches you host.</p>
       </div>
 
@@ -41,6 +46,7 @@
             <option value="easy">Easy CPU</option>
             <option value="normal" selected>Normal CPU</option>
             <option value="hard">Hard CPU</option>
+            <option value="extreme">Extreme CPU</option>
           </select>
           <button id="btnCpu" class="btn primary">Play vs CPU</button>
         </div>
@@ -72,7 +78,7 @@
           <li><span class="pip g"></span> green dots are your clicks, <span class="pip r"></span> red dots are your opponent's.</li>
         </ul>
       </details>
-      <p class="build">build 10</p>
+      <p class="build">build 17</p>
     </div>
   </section>
 
@@ -141,7 +147,10 @@
       <div class="overlay-card">
         <div id="ovTitle" class="ov-title"></div>
         <div id="ovSub" class="ov-sub"></div>
-        <div id="ovStats" class="ov-stats"></div>
+        <div class="ov-body">
+          <div id="ovGraph" class="ov-graph"></div>
+          <div id="ovStats" class="ov-stats"></div>
+        </div>
         <div id="ovButtons" class="row center">
           <button id="btnRematch" class="btn primary">Rematch</button>
           <button id="btnMenu" class="btn ghost">Main menu</button>
@@ -150,12 +159,12 @@
     </div>
   </section>
 
-  <script src="js/config.js?v=10"></script>
-  <script src="js/server.js?v=10"></script>
-  <script src="js/ai.js?v=10"></script>
-  <script src="js/sfx.js?v=10"></script>
-  <script src="js/net.js?v=10"></script>
-  <script src="js/ui.js?v=10"></script>
-  <script src="js/main.js?v=10"></script>
+  <script src="js/config.js?v=17"></script>
+  <script src="js/server.js?v=17"></script>
+  <script src="js/ai.js?v=17"></script>
+  <script src="js/sfx.js?v=17"></script>
+  <script src="js/net.js?v=17"></script>
+  <script src="js/ui.js?v=17"></script>
+  <script src="js/main.js?v=17"></script>
 </body>
 </html>

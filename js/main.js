@@ -36,8 +36,29 @@
       const on = b.dataset.mode === m;
       b.classList.toggle('on', on); b.setAttribute('aria-checked', on);
     });
+    buildHpSelect();
   }
-  const modeText = m => { const t = CONFIG.MATCH_MODES[m].seconds; return `${CONFIG.MATCH_MODES[m].label} · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+  const fmt = n => Number(n).toLocaleString('en-US');
+
+  // ---------- Max HP setting ('default' = the selected mode's tuned value) ----------
+  const modeHp = m => CONFIG.MATCH_MODES[m].startHp || CONFIG.START_HP;
+  function buildHpSelect() {
+    const sel = $('hpSelect'); if (!sel) return;
+    const saved = store.get('cb_hp', 'default');
+    const opts = [['default', `Mode default (${fmt(modeHp(getMode()))})`], ...CONFIG.HP_PRESETS.map(v => [String(v), fmt(v)]), ['custom', 'Custom…']];
+    sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+    const isPreset = saved === 'default' || CONFIG.HP_PRESETS.includes(+saved);
+    sel.value = isPreset ? saved : 'custom';
+    $('hpCustom').hidden = sel.value !== 'custom';
+    if (!isPreset) $('hpCustom').value = saved;
+  }
+  function getHp() {                 // null → mode default
+    const v = store.get('cb_hp', 'default');
+    const n = Math.round(+v);
+    return v !== 'default' && n >= CONFIG.HP_MIN && n <= CONFIG.HP_MAX ? n : null;
+  }
+  const effectiveHp = () => getHp() || modeHp(getMode());
+  const modeText = m => { const t = CONFIG.MATCH_MODES[m].seconds; return `${CONFIG.MATCH_MODES[m].label} · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} · ${fmt(effectiveHp())} HP`; };
 
   const myName = () => ($('nameInput').value.trim() || 'Player').slice(0, 16);
   const setStatus = (id, text, err) => { const el = $(id); el.textContent = text || ''; el.classList.toggle('err', !!err); };
@@ -79,7 +100,7 @@
     teardown();
     mode = 'cpu';
     const diff = $('difficulty').value;
-    server = new GameServer({ names: { p1: myName(), p2: `CPU (${diff})` }, mode: getMode() });
+    server = new GameServer({ names: { p1: myName(), p2: `CPU (${diff})` }, mode: getMode(), startHp: getHp() });
     cpu = new CpuBot('p2', diff, m => server.rpc('p2', m));
     UI.myId = 'p1';
     UI.onAction = m => server && server.rpc('p1', m);
@@ -97,7 +118,7 @@
     teardown();
     mode = 'host';
     setStatus('netStatus', 'Creating room…');
-    server = new GameServer({ names: { p1: myName(), p2: 'Guest' }, mode: getMode() });
+    server = new GameServer({ names: { p1: myName(), p2: 'Guest' }, mode: getMode(), startHp: getHp() });
     $('lobbyMode').textContent = modeText(getMode());
     UI.myId = 'p1';
     UI.onAction = m => server && server.rpc('p1', m);
@@ -212,6 +233,16 @@
     $('nameInput').addEventListener('change', () => store.set('cb_name', myName()));
     $('difficulty').value = store.get('cb_diff', 'normal');
     setMode(getMode());
+    $('hpSelect').addEventListener('change', e => {
+      const v = e.target.value;
+      $('hpCustom').hidden = v !== 'custom';
+      if (v === 'custom') { $('hpCustom').value = $('hpCustom').value || effectiveHp(); $('hpCustom').focus(); store.set('cb_hp', $('hpCustom').value); }
+      else store.set('cb_hp', v);
+    });
+    $('hpCustom').addEventListener('change', e => {
+      const n = Math.min(CONFIG.HP_MAX, Math.max(CONFIG.HP_MIN, Math.round(+e.target.value || 0)));
+      e.target.value = n; store.set('cb_hp', String(n));
+    });
     document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
     $('difficulty').addEventListener('change', e => store.set('cb_diff', e.target.value));
 

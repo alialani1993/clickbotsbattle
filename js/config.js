@@ -21,12 +21,19 @@
       credential: 'EnDJqp9bHFwj/941dRqsWLp6A5Y=',
     }],
 
-    MATCH_MODES: {            // selectable match lengths
-      // optional per-mode startHp overrides START_HP, e.g. blitz: { ..., startHp: 1300 }
-      blitz:    { label: 'Blitz',    seconds: 60 },
-      standard: { label: 'Standard', seconds: 120 },
-      marathon: { label: 'Marathon', seconds: 300 },
+    // Selectable match lengths. startHp = default max HP (1,000 everywhere; menu can override).
+    // Longer modes run a slower economy so ~75% of matches end by knockout, ~25% on time.
+    //   priceMult — multiplies every tier price      powerMult — scales every upgrade's effect
+    // Tuned with tools/balance-lab.js against the cost/benefit CPU (Normal vs Normal, 200+ matches):
+    //   Blitz 75% KO / ~50s avg · Standard 72% / ~105s · Marathon 74% / ~255s
+    // KO rate is very sensitive to powerMult (Standard 0.31 → 64% KO, 0.33 → 79%): nudge in small steps.
+    MATCH_MODES: {
+      blitz:    { label: 'Blitz',    seconds: 60,  startHp: 1000, priceMult: 1.15, powerMult: 0.47 },
+      standard: { label: 'Standard', seconds: 120, startHp: 1000, priceMult: 2,    powerMult: 0.32 },
+      marathon: { label: 'Marathon', seconds: 300, startHp: 1000, priceMult: 3.5,  powerMult: 0.225 },
     },
+    HP_PRESETS: [1000, 2500, 5000, 10000, 30000, 100000, 200000],  // menu "Max HP" choices
+    HP_MIN: 100, HP_MAX: 1000000,
     DEFAULT_MODE: 'standard',
 
     CPS_WINDOW: 5,            // seconds averaged for the live clicks-per-second readout
@@ -37,7 +44,7 @@
     COUNTDOWN_SECONDS: 3,
     TICK_MS: 50,              // server simulation / broadcast rate (20 Hz)
 
-    START_HP: 5000,
+    START_HP: 1000,
     START_RESOURCES: 0,
 
     BASE_ATTACK: 5,           // damage per attack click
@@ -48,13 +55,25 @@
     SHIELD_REDUCTION: 0.8,    // shield blocks 80% of incoming damage
     OVERCLOCK_MULT: 2,
 
+    // CPU opponent difficulty.
+    //   cps      — clicks per second (the main difficulty knob; humans average ~5–8, fast players 10+)
+    //   buyDelay — seconds between shop decisions (reaction time)
+    //   noise    — error in its cost/benefit estimates (0 = perfect shopper, 0.6 = sloppy)
+    //   smart    — how sensible its click choices are (1 = best, lower = more random)
+    CPU_DIFFICULTY: {
+      easy:   { cps: 4,   buyDelay: 1.6,  noise: 0.6,  smart: 0.5 },
+      normal: { cps: 6.5, buyDelay: 0.9,  noise: 0.25, smart: 0.8 },
+      hard:   { cps: 9,   buyDelay: 0.35, noise: 0.05, smart: 1.0 },
+      extreme: { cps: 18, buyDelay: 0.25, noise: 0,    smart: 1.0 },
+    },
+
     MAX_CLICKS_PER_SEC: 20,   // server-side anti-macro cap (inputs above this are dropped)
 
     // Per-tier price; each purchase in a tier raises that tier's price.
     TIERS: {
-      bronze: { label: 'Bronze', baseCost: 20,  growth: 1.1 },
-      silver: { label: 'Silver', baseCost: 50,  growth: 1.5 },
-      gold:   { label: 'Gold',   baseCost: 100, growth: 2 },
+      bronze: { label: 'Bronze', baseCost: 20,  growth: 1.2 },
+      silver: { label: 'Silver', baseCost: 50,  growth: 1.25 },
+      gold:   { label: 'Gold',   baseCost: 100, growth: 1.3 },
     },
     OFFERS_PER_TIER: 3,       // random choices shown per tier (GDD: random within tier)
   };
@@ -90,7 +109,26 @@
 
   const UPGRADE_BY_ID = Object.fromEntries(UPGRADES.map(u => [u.id, u]));
 
-  const api = { CONFIG, UPGRADES, UPGRADE_BY_ID };
+  // ---- per-mode power scaling (shared by server + UI so cards always match the game) ----
+  const modePower = mode => (CONFIG.MATCH_MODES[mode] && CONFIG.MATCH_MODES[mode].powerMult) || 1;
+  const modePrice = mode => (CONFIG.MATCH_MODES[mode] && CONFIG.MATCH_MODES[mode].priceMult) || 1;
+  const UNSCALED = ['crit'];   // crit chance stays a flat %, timed effects keep their durations
+  function scaledMod(u, mode) {
+    const k = modePower(mode), out = {};
+    for (const [key, v] of Object.entries(u.mod || {})) out[key] = UNSCALED.includes(key) ? v : v * k;
+    return out;
+  }
+  const fmtNum = v => String(+(+v).toFixed(v < 10 ? 1 : 0));
+  // Rewrites the number in a card's description to the scaled value, e.g. "+10 attack" → "+4.7 attack".
+  function describeUpgrade(u, mode) {
+    if (u.kind !== 'stat' || modePower(mode) === 1) return u.desc;
+    const [key, v] = Object.entries(scaledMod(u, mode))[0];
+    if (UNSCALED.includes(key)) return u.desc;
+    if (key === 'atkMult') return u.desc.replace(/×[\d.]+/, '×' + fmtNum(1 + v));
+    return u.desc.replace(/[\d.]+/, fmtNum(v));
+  }
+
+  const api = { CONFIG, UPGRADES, UPGRADE_BY_ID, scaledMod, describeUpgrade, modePrice, modePower };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else Object.assign(root, api);
 })(typeof window !== 'undefined' ? window : globalThis);

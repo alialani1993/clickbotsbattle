@@ -1,22 +1,19 @@
 /* ClickBots PvP — CPU opponent.
  * Plays through the same rpc() interface a human client uses, so it
- * can't cheat: it only sees snapshots and sends inputs. */
+ * can't cheat: it only sees snapshots and sends inputs.
+ *
+ * Shopping is cost/benefit: every offered card (affordable or not) is scored as
+ * expected "HP swing" over the rest of the match ÷ price. Benefits use the CPU's own
+ * click mix, its income and the damage it's taking; income upgrades are valued by the
+ * combat upgrades that income could buy. If the best card isn't affordable yet, the CPU
+ * saves for it (and mines more) unless an affordable card is within 80% of its score.
+ * Difficulty = clicks per second, reaction time and estimate noise. */
 (function (root) {
-  const { CONFIG, UPGRADE_BY_ID } =
+  const { CONFIG, UPGRADE_BY_ID, scaledMod } =
     (typeof module !== 'undefined' && module.exports) ? require('./config.js') : root;
 
-  const DIFFICULTY = {
-    easy:   { cps: 4,  buyDelay: 1.6, smart: 0.5 },
-    normal: { cps: 6.5, buyDelay: 0.9, smart: 0.8 },
-    hard:   { cps: 9,  buyDelay: 0.35, smart: 1.0 },
-  };
-
-  // Rough value of each upgrade to the CPU (higher = buy first).
-  const VALUE = {
-    fists: 3, patchkit: 2, pickaxe: 4, minidrill: 5, plating: 2, minilaser: 5, autorepair: 3,
-    piston: 6, welder: 4, excavator: 6, turret: 7, drone: 5, rig: 7,
-    overdrive: 9, matrix: 7, laser: 10, nanos: 7, terraform: 8, shield: 6, overclock: 8,
-  };
+  // Difficulty settings live in config.js (CONFIG.CPU_DIFFICULTY).
+  const DIFFICULTY = CONFIG.CPU_DIFFICULTY;
 
   class CpuBot {
     constructor(pid, difficulty, send, rng = Math.random) {
@@ -26,6 +23,8 @@
       this.rng = rng;
       this.budget = 0;
       this.buyCooldown = 0;
+      this.clicks = { attack: 1, repair: 0.5, gather: 1 };   // decayed counts of its own clicks
+      this.saving = null;                                    // card it is saving for
     }
 
     update(s, dt) {
@@ -33,6 +32,8 @@
       const me = s.players[this.pid];
       const op = s.players[this.pid === 'p1' ? 'p2' : 'p1'];
 
+      const decay = Math.pow(0.5, dt / 8);                    // ~8s half-life
+      for (const k in this.clicks) this.clicks[k] *= decay;
       this.buyCooldown -= dt;
       if (this.buyCooldown <= 0 && this.tryBuy(s, me, op)) this.buyCooldown = this.d.buyDelay;
 
@@ -40,7 +41,9 @@
       this.budget += this.d.cps * dt * (0.7 + this.rng() * 0.6);
       while (this.budget >= 1) {
         this.budget -= 1;
-        this.send({ a: this.chooseClick(s, me, op) });
+        const a = this.chooseClick(s, me, op);
+        this.clicks[a] += 1;
+        this.send({ a });
       }
     }
 
@@ -57,6 +60,7 @@
       if (me.hp < op.hp && myPct < 0.5) wRepair += 0.35;
       if (me.effects.shield > 0) wRepair *= 0.4;      // shielded: go aggressive
       let wAttack = 0.45 + (opPct < 0.3 ? 0.35 : 0);  // smell blood
+      if (this.saving) wGather += 0.15;               // saving up for a bigger upgrade
       if (s.timeLeft < 15) wGather = 0.02;            // late game: resources are worthless
 
       // a "dumber" CPU is noisier
@@ -70,26 +74,87 @@
       return 'gather';
     }
 
-    tryBuy(s, me, op) {
-      if (s.timeLeft < 8) return false; // not worth it this late
-      let best = null;
-      for (const tier of Object.keys(CONFIG.TIERS)) {
-        const cost = me.costs[tier];
-        if (me.res < cost) continue;
-        s.offers[tier].forEach((id, idx) => {
-          let v = VALUE[id] || 1;
-          const u = UPGRADE_BY_ID[id];
-          if (u.kind === 'timed' && me.effects[u.effect] > 2) v -= 5;
-          if (id === 'shield' && op.autoAtk + op.atk > 20) v += 3;
-          if ((id === 'patchkit' || id === 'autorepair' || id === 'welder' || id === 'drone' || id === 'nanos') && me.hp / me.maxHp > 0.85) v -= 2;
-          if ((u.mod && (u.mod.autoGat || u.mod.gat)) && s.timeLeft < 40) v -= 4;
-          if (!best || v > best.v) best = { tier, idx, id, v };
-        });
+    // ---------- shopping: cost / benefit ----------
+    // Every offered card gets a benefit in "HP swing" over the expected rest of the match:
+    // damage dealt to the enemy and damage prevented/repaired on itself count 1:1, extra
+    // income counts as the combat value it could buy later. Score = benefit / cost, with
+    // the remaining horizon shortened by however long it must save to afford the card.
+    rates(s, me, op) {
+      const c = this.clicks, total = c.attack + c.repair + c.gather || 1;
+      const cps = this.d.cps;
+      const atkCps = cps * c.attack / total, repCps = cps * c.repair / total, gatCps = cps * c.gather / total;
+      const sum = a => a[0] + a[1];
+      return {
+        atkCps, repCps, gatCps,
+        myDps: sum(me.activity.dmg), incoming: sum(op.activity.dmg),
+        myRep: sum(me.activity.rep), income: Math.max(0.5, sum(me.activity.res)),
+        clickDps: atkCps * me.atk * (1 + me.crit * (CONFIG.CRIT_MULT - 1)),
+      };
+    }
+
+    horizon(s, me, op, r) {
+      // Expected seconds until the match ends: timer, or whoever is losing HP falls first.
+      const myNet = Math.max(0.1, r.incoming - r.myRep), opNet = Math.max(0.1, r.myDps - op.activity.rep[0] - op.activity.rep[1]);
+      const ko = Math.min(me.hp / myNet, op.hp / opNet);
+      return Math.max(8, Math.min(s.timeLeft, ko * 1.2));
+    }
+
+    // Benefit (HP-equivalent) of upgrade u if it starts working after `wait` seconds.
+    benefit(u, s, me, op, r, H, wait, hpPerRes) {
+      const live = Math.max(0, H - wait);
+      if (!live) return 0;
+      if (u.kind === 'timed') {
+        const dur = Math.min(u.duration, live);
+        if (u.effect === 'shield') return dur * r.incoming * CONFIG.SHIELD_REDUCTION * (me.effects.shield > 1 ? 0.2 : 1);
+        if (u.effect === 'overclock') return dur * (r.myDps + r.myRep * 0.5 + r.income * hpPerRes * 0.5) * (me.effects.overclock > 1 ? 0.2 : 1);
+        return 0;
       }
-      if (!best) return false;
-      // Save for a higher tier sometimes instead of buying junk
-      if (best.v < 3 && this.rng() < this.d.smart * 0.7) return false;
-      this.send({ a: 'buy', tier: best.tier, idx: best.idx, id: best.id });
+      let rate = 0, once = 0;
+      const repairNeed = Math.max(0, r.incoming - r.myRep) + (me.maxHp - me.hp) / Math.max(5, H);
+      for (const [k, v] of Object.entries(scaledMod(u, s.mode))) {
+        if (k === 'atk') rate += v * me.atkMult0 * r.atkCps;
+        else if (k === 'autoAtk') rate += v;
+        else if (k === 'atkMult') rate += v * (r.clickDps / Math.max(1, me.atkMult0));
+        else if (k === 'crit') rate += v * (CONFIG.CRIT_MULT - 1) * r.atkCps * me.atk;
+        else if (k === 'rep') rate += Math.min(v * r.repCps, repairNeed + 1);
+        else if (k === 'autoRep') rate += Math.min(v, repairNeed + 1);
+        else if (k === 'gat') rate += v * r.gatCps * hpPerRes * 0.5;      // income → future upgrades
+        else if (k === 'autoGat') rate += v * hpPerRes * 0.5;
+        else if (k === 'maxHp') once += v * (r.incoming > 0 ? 1 : 0.5);
+      }
+      return rate * live + once;
+    }
+
+    tryBuy(s, me, op) {
+      if (s.timeLeft < 6) return false;
+      const r = this.rates(s, me, op);
+      const H = this.horizon(s, me, op, r);
+      me.atkMult0 = 1;
+      const cards = [];
+      for (const tier of Object.keys(CONFIG.TIERS)) {
+        s.offers[tier].forEach((id, idx) => cards.push({ tier, idx, id, u: UPGRADE_BY_ID[id], cost: me.costs[tier] }));
+      }
+      // Exchange rate for income: best combat value per resource among current cards (no recursion).
+      let hpPerRes = 0;
+      for (const c of cards) {
+        if (c.u.mod && (c.u.mod.gat || c.u.mod.autoGat)) continue;
+        hpPerRes = Math.max(hpPerRes, this.benefit(c.u, s, me, op, r, H, 0, 0) / c.cost);
+      }
+      let best = null, bestNow = null;
+      for (const c of cards) {
+        const wait = Math.max(0, (c.cost - me.res) / r.income);
+        const noise = 1 + (this.rng() * 2 - 1) * this.d.noise;
+        c.score = this.benefit(c.u, s, me, op, r, H, wait, hpPerRes) / c.cost * noise;
+        c.affordable = me.res >= c.cost;
+        if (!best || c.score > best.score) best = c;
+        if (c.affordable && (!bestNow || c.score > bestNow.score)) bestNow = c;
+      }
+      if (!best || best.score <= 0) { this.saving = null; return false; }
+      // Buy the best card if affordable; otherwise buy an affordable one only if it's nearly as good.
+      const pick = best.affordable ? best : (bestNow && bestNow.score >= best.score * 0.8 ? bestNow : null);
+      this.saving = pick ? null : best;
+      if (!pick) return false;
+      this.send({ a: 'buy', tier: pick.tier, idx: pick.idx, id: pick.id });
       return true;
     }
   }
