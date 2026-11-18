@@ -95,6 +95,22 @@ js/main.js          menus and wiring
 tools/balance-sim.js
 ```
 
+## Fixed-size game area on desktop (fairness)
+
+Clicking speed depends on how far the mouse travels between targets (Fitts's law). If the game stretched to fill the window, players on big monitors would have to move further between Repair, Mine, Attack and the shop. On mouse-driven devices the game area is therefore fixed at **1120×700** (`CONFIG.STAGE`). It's centered, and it never scales up.
+
+| Monitor | Repair → Attack travel (stretched layout) | Fixed 1120×700 |
+|---|---|---|
+| 1366 laptop | 845px | 689px |
+| 1920 monitor | 1,194px | 689px |
+| 3440 ultrawide | 2,151px | 689px |
+
+- In windows smaller than the stage, the whole game shrinks evenly, so distances and target sizes shrink together.
+- Touch devices (phones and tablets) stay full-screen.
+- Layout inside the game uses container-relative units (`cqw`, `cqh`, `@container game`), so it depends on the game area, not the window.
+- To preview another size, add `?stage=1280x720` to the URL.
+- A fixed size can't control browser zoom, OS display scaling or mouse sensitivity.
+
 ## QA hook
 
 In the browser console, `ClickBotsDebug().server` gives you the live server object, so you can inspect or change state while you test.

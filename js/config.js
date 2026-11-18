@@ -4,6 +4,10 @@
 (function (root) {
   const CONFIG = {
     MATCH_SECONDS: 120,       // GDD: 2 minutes per match (default mode)
+    // Desktop (mouse) players get a fixed-size game area so every target is the same
+    // distance apart on every monitor. Phones/tablets stay full-screen.
+    STAGE: { w: 1120, h: 700 },   // override for testing with ?stage=960x600
+
     MATCH_MODES: {            // selectable match lengths
       // optional per-mode startHp overrides START_HP, e.g. blitz: { ..., startHp: 1300 }
       blitz:    { label: 'Blitz',    seconds: 60 },

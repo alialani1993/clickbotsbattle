@@ -69,7 +69,13 @@
 
   // ---------- helpers ----------
   const fmtTime = s => { s = Math.ceil(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-  const centerOf = el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height }; };
+  // Element centre in fx-layer coordinates (handles the desktop stage being offset/scaled).
+  const centerOf = el => {
+    const fx = document.getElementById('fxLayer');
+    const f = fx.getBoundingClientRect(), k = f.width / (fx.offsetWidth || 1);
+    const r = el.getBoundingClientRect();
+    return { x: (r.left - f.left + r.width / 2) / k, y: (r.top - f.top + r.height / 2) / k, w: r.width / k, h: r.height / k };
+  };
   const restart = (el, cls, ms) => {
     el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
     clearTimeout(el['_t' + cls]); el['_t' + cls] = setTimeout(() => el.classList.remove(cls), ms);

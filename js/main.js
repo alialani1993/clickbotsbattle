@@ -134,8 +134,30 @@
     guest.join(code);
   }
 
+  // ---------- desktop fixed-size stage ----------
+  function setupStage() {
+    const q = new URLSearchParams(location.search).get('stage');
+    const m = q && q.match(/^(\d{3,4})x(\d{3,4})$/);
+    const W = m ? +m[1] : CONFIG.STAGE.w, H = m ? +m[2] : CONFIG.STAGE.h;
+    const mouse = matchMedia('(hover: hover) and (pointer: fine)');
+    const root = document.documentElement.style;
+    root.setProperty('--stage-w', W + 'px');
+    root.setProperty('--stage-h', H + 'px');
+    const fit = () => {
+      document.body.classList.toggle('fixed-stage', mouse.matches);
+      // Never scale UP (that would spread targets apart again). Only shrink to fit
+      // small windows; uniform scaling keeps the distance-to-size ratio identical.
+      const s = Math.min(1, (innerWidth - 24) / W, (innerHeight - 24) / H);
+      root.setProperty('--stage-scale', Math.max(0.5, s).toFixed(4));
+    };
+    addEventListener('resize', fit);
+    mouse.addEventListener && mouse.addEventListener('change', fit);
+    fit();
+  }
+
   // ---------- wiring ----------
   function init() {
+    setupStage();
     UI.init();
     $('nameInput').value = store.get('cb_name', '');
     $('nameInput').addEventListener('change', () => store.set('cb_name', myName()));
