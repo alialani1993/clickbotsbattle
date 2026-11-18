@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>ClickBots PvP — Prototype</title>
+  <meta name="description" content="Fast-paced 2-minute PvP clicker: attack, repair, mine, upgrade.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- PeerJS: WebRTC data channels for online play (host browser acts as the server) -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+</head>
+<body>
+  <!-- ================= MENU ================= -->
+  <section id="menu" class="screen active">
+    <div class="menu-card">
+      <h1 class="logo"><span class="logo-bot">🤖</span> Click<span>Bots</span> <em>PvP</em></h1>
+      <p class="tag">2 minutes. Attack, repair, mine, upgrade. Last bot standing wins.</p>
+
+      <label class="field">
+        <span>Your name</span>
+        <input id="nameInput" maxlength="16" placeholder="Player" autocomplete="off">
+      </label>
+
+      <div class="menu-block">
+        <h2>Solo</h2>
+        <div class="row">
+          <select id="difficulty" aria-label="CPU difficulty">
+            <option value="easy">Easy CPU</option>
+            <option value="normal" selected>Normal CPU</option>
+            <option value="hard">Hard CPU</option>
+          </select>
+          <button id="btnCpu" class="btn primary">Play vs CPU</button>
+        </div>
+      </div>
+
+      <div class="menu-block">
+        <h2>Online 1v1</h2>
+        <div class="row">
+          <button id="btnHost" class="btn">Host match</button>
+        </div>
+        <div class="row">
+          <input id="joinCode" maxlength="5" placeholder="ROOM CODE" autocomplete="off" spellcheck="false">
+          <button id="btnJoin" class="btn">Join</button>
+        </div>
+        <p id="netStatus" class="net-status"></p>
+      </div>
+
+      <details class="howto">
+        <summary>How to play</summary>
+        <ul>
+          <li><b>Your bot is on the left.</b> Click it to <b>repair</b>.</li>
+          <li><b>Enemy bot is on the right.</b> Click it to <b>attack</b>.</li>
+          <li><b>Crystal in the middle.</b> Click it to <b>mine resources</b>.</li>
+          <li>Spend resources on <b>Bronze / Silver / Gold</b> upgrades. Offers are random and re-roll after each purchase.</li>
+          <li>Destroy the enemy, or have the most HP when the 2-minute timer ends.</li>
+          <li><span class="pip g"></span> green dots are your clicks, <span class="pip r"></span> red dots are your opponent's.</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- ================= LOBBY (host waiting) ================= -->
+  <section id="lobby" class="screen">
+    <div class="menu-card">
+      <h2>Waiting for opponent…</h2>
+      <p>Share this room code:</p>
+      <div id="roomCode" class="room-code">-----</div>
+      <div class="row center">
+        <button id="btnCopyLink" class="btn">Copy invite link</button>
+        <button id="btnLobbyBack" class="btn ghost">Cancel</button>
+      </div>
+      <p id="lobbyStatus" class="net-status"></p>
+    </div>
+  </section>
+
+  <!-- ================= GAME ================= -->
+  <section id="game" class="screen">
+    <header class="hud">
+      <div class="hud-side me">
+        <div class="hud-name"><span id="meName">You</span><span class="hud-tag">YOU</span></div>
+        <div class="hpbar"><div id="meHpFill" class="hpfill"></div><div id="meHpGhost" class="hpghost"></div><span id="meHpText" class="hptext"></span></div>
+      </div>
+      <div class="hud-mid">
+        <div id="timer" class="timer">2:00</div>
+        <div class="hud-mid-sub"><span id="ping"></span><button id="btnMute" class="icon-btn" title="Toggle sound">🔊</button></div>
+      </div>
+      <div class="hud-side op">
+        <div class="hud-name"><span class="hud-tag">ENEMY</span><span id="opName">Enemy</span></div>
+        <div class="hpbar"><div id="opHpFill" class="hpfill"></div><div id="opHpGhost" class="hpghost"></div><span id="opHpText" class="hptext"></span></div>
+      </div>
+    </header>
+
+    <main class="arena">
+      <div class="lane me">
+        <div id="meBot" class="target bot me" role="button" aria-label="Repair your bot"></div>
+        <div class="action-label">🛠️ REPAIR</div>
+        <div id="meStats" class="stats"></div>
+        <div id="meUpg" class="upg-icons"></div>
+      </div>
+
+      <div class="lane mid">
+        <div id="node" class="target node" role="button" aria-label="Mine resources"></div>
+        <div class="action-label">⛏️ MINE</div>
+        <div class="res"><span class="res-ico">◆</span><span id="resCount">0</span></div>
+      </div>
+
+      <div class="lane op">
+        <div id="opBot" class="target bot op" role="button" aria-label="Attack enemy bot"></div>
+        <div class="action-label">⚔️ ATTACK</div>
+        <div id="opStats" class="stats"></div>
+        <div id="opUpg" class="upg-icons"></div>
+      </div>
+    </main>
+
+    <section class="shop" id="shop"></section>
+
+    <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
+
+    <div id="overlay" class="overlay hidden">
+      <div class="overlay-card">
+        <div id="ovTitle" class="ov-title"></div>
+        <div id="ovSub" class="ov-sub"></div>
+        <div id="ovStats" class="ov-stats"></div>
+        <div id="ovButtons" class="row center">
+          <button id="btnRematch" class="btn primary">Rematch</button>
+          <button id="btnMenu" class="btn ghost">Main menu</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="js/config.js"></script>
+  <script src="js/server.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/sfx.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
