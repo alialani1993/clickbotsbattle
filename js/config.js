@@ -53,8 +53,8 @@
     // Per-tier price; each purchase in a tier raises that tier's price.
     TIERS: {
       bronze: { label: 'Bronze', baseCost: 20,  growth: 1.2 },
-      silver: { label: 'Silver', baseCost: 60,  growth: 1.25 },
-      gold:   { label: 'Gold',   baseCost: 160, growth: 1.3 },
+      silver: { label: 'Silver', baseCost: 50,  growth: 1.25 },
+      gold:   { label: 'Gold',   baseCost: 100, growth: 1.3 },
     },
     OFFERS_PER_TIER: 2,       // random choices shown per tier (GDD: random within tier)
   };
@@ -64,24 +64,27 @@
     // ---------- BRONZE ----------
     { id: 'fists',     tier: 'bronze', icon: '👊', name: 'Sharpened Fists', desc: '+3 attack per click',      kind: 'stat', mod: { atk: 3 } },
     { id: 'patchkit',  tier: 'bronze', icon: '🩹', name: 'Patch Kit',       desc: '+3 repair per click',      kind: 'stat', mod: { rep: 3 } },
-    { id: 'pickaxe',   tier: 'bronze', icon: '⛏️', name: 'Better Pickaxe',  desc: '+1 resource per click',    kind: 'stat', mod: { gat: 1 } },
-    { id: 'minidrill', tier: 'bronze', icon: '🔩', name: 'Mini Drill',      desc: 'Auto: +1 resource / sec',  kind: 'stat', mod: { autoGat: 1 } },
+    { id: 'pickaxe',   tier: 'bronze', icon: '⛏️', name: 'Better Pickaxe',  desc: '+3 resource per click',    kind: 'stat', mod: { gat: 1 } },
+    { id: 'minidrill', tier: 'bronze', icon: '🔩', name: 'Mini Drill',      desc: 'Auto: +5 resource / sec',  kind: 'stat', mod: { autoGat: 5 } },
+    { id: 'minilaser', tier: 'bronze', icon: '⚠️', name: 'Mini Laser',      desc: 'Auto: 5 damage / sec',  kind: 'stat', mod: { autoAtk: 5 } },
+    { id: 'autorepait', tier: 'bronze', icon: '🔧', name: 'Auto Repair',      desc: 'Auto: 5 repair / sec',  kind: 'stat', mod: { autoRep: 5 } },
     { id: 'plating',   tier: 'bronze', icon: '🛡️', name: 'Scrap Plating',   desc: '+150 max HP (and heals it)', kind: 'stat', mod: { maxHp: 150 } },
 
     // ---------- SILVER ----------
-    { id: 'piston',    tier: 'silver', icon: '🥊', name: 'Piston Punch',    desc: '+8 attack per click',      kind: 'stat', mod: { atk: 8 } },
-    { id: 'welder',    tier: 'silver', icon: '🔥', name: 'Arc Welder',      desc: '+8 repair per click',      kind: 'stat', mod: { rep: 8 } },
-    { id: 'excavator', tier: 'silver', icon: '🚜', name: 'Excavator Arm',   desc: '+3 resources per click',   kind: 'stat', mod: { gat: 3 } },
-    { id: 'turret',    tier: 'silver', icon: '🔫', name: 'Auto-Turret',     desc: 'Auto: 6 damage / sec',     kind: 'stat', mod: { autoAtk: 6 } },
-    { id: 'drone',     tier: 'silver', icon: '🛸', name: 'Repair Drone',    desc: 'Auto: 5 repair / sec',     kind: 'stat', mod: { autoRep: 5 } },
-    { id: 'rig',       tier: 'silver', icon: '🏭', name: 'Mining Rig',      desc: 'Auto: +4 resources / sec', kind: 'stat', mod: { autoGat: 4 } },
+    { id: 'piston',    tier: 'silver', icon: '🥊', name: 'Piston Punch',    desc: '+10 attack per click',      kind: 'stat', mod: { atk: 8 } },
+    { id: 'welder',    tier: 'silver', icon: '🔥', name: 'Arc Welder',      desc: '+10 repair per click',      kind: 'stat', mod: { rep: 8 } },
+    { id: 'excavator', tier: 'silver', icon: '🚜', name: 'Excavator Arm',   desc: '+10 resources per click',   kind: 'stat', mod: { gat: 3 } },
+    { id: 'turret',    tier: 'silver', icon: '🔫', name: 'Auto-Turret',     desc: 'Auto: 15 damage / sec',     kind: 'stat', mod: { autoAtk: 6 } },
+    { id: 'drone',     tier: 'silver', icon: '🛸', name: 'Repair Drone',    desc: 'Auto: 15 repair / sec',     kind: 'stat', mod: { autoRep: 5 } },
+    { id: 'rig',       tier: 'silver', icon: '🏭', name: 'Mining Rig',      desc: 'Auto: +15 resources / sec', kind: 'stat', mod: { autoGat: 4 } },
 
     // ---------- GOLD ----------
     { id: 'overdrive', tier: 'gold', icon: '⚡', name: 'Overdrive Core',   desc: 'Attack clicks ×1.5 (stacks)', kind: 'stat', mod: { atkMult: 0.5 } },
     { id: 'matrix',    tier: 'gold', icon: '🎯', name: 'Targeting Matrix', desc: '+20% crit chance (×3 dmg)',  kind: 'stat', mod: { crit: 0.2 } },
-    { id: 'laser',     tier: 'gold', icon: '🛰️', name: 'Orbital Laser',    desc: 'Auto: 25 damage / sec',      kind: 'stat', mod: { autoAtk: 25 } },
-    { id: 'nanos',     tier: 'gold', icon: '🧬', name: 'Nano Swarm',       desc: 'Auto: 15 repair / sec',      kind: 'stat', mod: { autoRep: 15 } },
-    { id: 'shield',    tier: 'gold', icon: '🔰', name: 'Energy Shield',    desc: '10s: block 60% of damage',   kind: 'timed', effect: 'shield',    duration: 10 },
+    { id: 'laser',     tier: 'gold', icon: '🛰️', name: 'Orbital Laser',    desc: 'Auto: 50 damage / sec',      kind: 'stat', mod: { autoAtk: 50 } },
+    { id: 'nanos',     tier: 'gold', icon: '🧬', name: 'Nano Swarm',       desc: 'Auto: 50 repair / sec',      kind: 'stat', mod: { autoRep: 50 } },
+    { id: 'terraform',     tier: 'gold', icon: '🪐', name: 'Terraforming',       desc: 'Auto: +50 resources / sec',      kind: 'stat', mod: { autoGat: 50 } },
+    { id: 'shield',    tier: 'gold', icon: '🔰', name: 'Energy Shield',    desc: '10s: block 80% of damage',   kind: 'timed', effect: 'shield',    duration: 10 },
     { id: 'overclock', tier: 'gold', icon: '🌀', name: 'Overclock',        desc: '10s: all clicks & autos ×2', kind: 'timed', effect: 'overclock', duration: 10 },
   ];
 
