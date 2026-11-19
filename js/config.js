@@ -104,7 +104,7 @@
     { id: 'nanos',     tier: 'gold', icon: '🧬', name: 'Nano Swarm',       desc: 'Auto: 50 repair / sec',      kind: 'stat', mod: { autoRep: 50 } },
     { id: 'terraform',     tier: 'gold', icon: '🪐', name: 'Terraforming',       desc: 'Auto: +50 resources / sec',      kind: 'stat', mod: { autoGat: 50 } },
     { id: 'shield',    tier: 'gold', icon: '🔰', name: 'Energy Shield',    desc: '10s: block 80% of damage',   kind: 'timed', effect: 'shield',    duration: 10 },
-    { id: 'overclock', tier: 'gold', icon: '🌀', name: 'Overclock',        desc: '10s: all clicks & autos ×2', kind: 'timed', effect: 'overclock', duration: 10 },
+    { id: 'overclock', tier: 'gold', icon: '🌀', name: 'Overclock',        desc: '10s: all clicks & autos ×2', kind: 'timed', effect: 'overclock', duration: 5 },
   ];
 
   const UPGRADE_BY_ID = Object.fromEntries(UPGRADES.map(u => [u.id, u]));
