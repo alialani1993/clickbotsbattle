@@ -2,7 +2,7 @@
  * Pure view: takes server snapshots and draws them. Inputs are forwarded
  * through ui.onAction(msg); the UI never changes game state itself. */
 (function (root) {
-  const { CONFIG, UPGRADE_BY_ID, describeUpgrade, critZone } = root;
+  const { CONFIG, UPGRADE_BY_ID, describeUpgrade } = root;
   const $ = id => document.getElementById(id);
 
   // ---------- art ----------
@@ -103,7 +103,7 @@
       this.zoneEl.className = 'crit-zone';
       this.zoneEl.innerHTML = '<i></i>';
       this.el.opBot.appendChild(this.zoneEl);
-      this.zoneTick();
+
 
       const bind = (el, a) => el.addEventListener('pointerdown', e => {
         e.preventDefault();
@@ -199,7 +199,7 @@
       this.botState(this.el.opBot, op);
       if (s.abilitySlots) CONFIG.ABILITY_SLOTS = s.abilitySlots;   // host's setting wins online
       this.abilities(me, op);
-      this._zone = { seed: me.zoneSeed, matrix: me.zone || 0, t: s.elapsed || 0, at: performance.now(), playing: s.phase === 'playing' };
+      this.critZone(me.critZone, s.phase === 'playing');
       this.shop(me, s.phase === 'playing', s.offers);
       this.activity(me, op);
 
@@ -217,6 +217,17 @@
     },
 
     hp(side, p) {
+      const bar = $(side + 'HpFill').parentNode, n = p.plates ? p.plates.length : 0;
+      if (n && bar._n !== n) {               // armor plate dividers on the HP bar
+        bar._n = n;
+        bar.querySelectorAll('.plate-tick').forEach(t => t.remove());
+        for (let i = 1; i < n; i++) {
+          const t = document.createElement('i');
+          t.className = 'plate-tick';
+          t.style[side === 'op' ? 'right' : 'left'] = (i / n * 100) + '%';
+          bar.appendChild(t);
+        }
+      }
       const pct = Math.max(0, p.hp / p.maxHp * 100);
       $(side + 'HpFill').style.width = pct + '%';
       $(side + 'HpGhost').style.width = pct + '%';
@@ -224,13 +235,13 @@
     },
 
     statsLine(el, p) {
-      const key = [p.atk, p.rep, p.gat, p.zone, p.autoAtk, p.autoRep, p.autoGat].join();
+      const key = [p.atk, p.rep, p.gat, p.autoAtk, p.autoRep, p.autoGat].join();
       if (el._k === key) return; el._k = key;
       const autos = [];
       if (p.autoAtk) autos.push(`⚔️${p.autoAtk}/s`);
       if (p.autoRep) autos.push(`🛠️${p.autoRep}/s`);
       if (p.autoGat) autos.push(`◆${p.autoGat}/s`);
-      el.innerHTML = `ATK <b>${p.atk}</b> · REP <b>${p.rep}</b> · MINE <b>${p.gat}</b>${p.zone ? ` · ZONE <b>+${p.zone}</b>` : ''}`
+      el.innerHTML = `ATK <b>${p.atk}</b> · REP <b>${p.rep}</b> · MINE <b>${p.gat}</b>`
         + (autos.length ? `<br>🤖 ${autos.join(' ')}` : '');
     },
 
@@ -296,7 +307,11 @@
         if (!ev.auto) this.pip(tgt, ev.from === myId);
         this.float(tgt, (ev.crit ? 'CRIT -' : '-') + ev.amt, 'dmg' + (ev.crit ? ' crit' : '') + (ev.auto ? ' auto' : ''), ev.auto ? '🤖 ' : '');
         restart(tgt, 'hit', 140);
-        if (ev.crit || !ev.auto) this.sparks(tgt, ev.crit ? 10 : 3, ev.to === myId ? '#33e6b0' : '#ff4f6d');
+        if (ev.crit || !ev.auto) this.sparks(tgt, ev.crit ? 16 : 3, ev.crit ? '#ffe14a' : ev.to === myId ? '#33e6b0' : '#ff4f6d');
+        if (ev.crit) {                       // make crits feel big: flash, punch, shake
+          restart(tgt, 'crit-flash', 260);
+          restart(document.getElementById('game'), 'shake', 220);
+        }
         ev.to === myId ? SFX.hurt() : SFX.hit(ev.crit);
       } else if (ev.k === 'heal') {
         const tgt = botOf(ev.pid);
@@ -326,6 +341,13 @@
         this.float(target, `${u.icon} ${u.name}!`, 'buy');
         restart(target, 'zap', 500);
         ev.pid === myId ? SFX.go() : SFX.tick();
+      } else if (ev.k === 'plate') {         // armor plate broke on ev.pid's bot
+        const tgt = botOf(ev.pid);
+        this.sparks(tgt, 8, '#9aa6c8');
+        this.float(tgt, 'PLATE BROKEN', 'plate');
+        if (ev.pid !== myId) SFX.gain(); else SFX.hurt();
+      } else if (ev.k === 'zone' && ev.pid === myId) {
+        SFX.tick();
       } else if (ev.k === 'full' && ev.pid === myId) {
         this.float(this.abilMe, 'Ability slots full: use one first', 'miss');
       } else if (ev.k === 'miss' && ev.pid === myId) {
@@ -435,19 +457,18 @@
     },
 
     // ---------- crit zone (on the enemy bot) ----------
-    zoneTick() {
-      requestAnimationFrame(() => this.zoneTick());
-      const z = this._zone, el = this.zoneEl;
-      if (!z || !el) return;
-      if (!z.playing) { el.style.display = 'none'; return; }
-      const t = z.t + (performance.now() - z.at) / 1000;
-      const p = critZone(z.seed, t, z.matrix);
-      const box = this.el.opBot;
-      const w = box.clientWidth, h = box.clientHeight;
+    critZone(cz, playing) {
+      const el = this.zoneEl;
+      const z = playing && cz && cz.active;
+      if (!z) { el.style.display = 'none'; el._id = null; return; }
+      if (el._id === z.id) return;
+      el._id = z.id;                         // new zone: place it and restart its countdown ring
+      el.style.left = (z.x * 100) + '%';
+      el.style.top = (z.y * 100) + '%';
+      el.style.width = el.style.height = (z.r * 2 * this.el.opBot.clientWidth) + 'px';
+      el.style.setProperty('--life', z.left + 's');
       el.style.display = '';
-      el.style.width = el.style.height = (p.r * 2 * w) + 'px';
-      el.style.left = (p.x * w) + 'px';
-      el.style.top = (p.y * h) + 'px';
+      el.classList.remove('spawn'); void el.offsetWidth; el.classList.add('spawn');
     },
 
     card(tier, idx) { return this.el.shop.querySelector(`.card[data-tier="${tier}"][data-idx="${idx}"]`); },
@@ -523,7 +544,7 @@
           if (loser && s.players[loser].hp <= 0) (loser === myId ? this.el.meBot : this.el.opBot).classList.add('dead');
           draw ? SFX.tick() : won ? SFX.win() : SFX.lose();
           const me = s.players[myId], op = s.players[myId === 'p1' ? 'p2' : 'p1'];
-          const pct = st => st.attacks ? Math.round(st.critHits / st.attacks * 100) + '%' : '—';
+          const pct = st => `${st.critHits} / ${st.zones || 0}`;
           const row = (label, a, b) => `<div class="l">${a}</div><div class="m">${label}</div><div class="r">${b}</div>`;
           $('ovStats').innerHTML =
             row('', me.name, op.name) +
@@ -534,7 +555,7 @@
             row('Clicks', me.stats.clicks, op.stats.clicks) +
             row('Avg CPS', me.stats.avgCps.toFixed(1), op.stats.avgCps.toFixed(1)) +
             row('Peak CPS', me.stats.peakCps.toFixed(1), op.stats.peakCps.toFixed(1)) +
-            row('Crit zone hits', pct(me.stats), pct(op.stats)) +
+            row('Crit zones hit', pct(me.stats), pct(op.stats)) +
             row('Upgrades', Object.values(me.upgrades).reduce((a, b) => a + b, 0), Object.values(op.upgrades).reduce((a, b) => a + b, 0));
           this.hpGraph(s, myId);
         }

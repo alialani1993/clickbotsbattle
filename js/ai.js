@@ -9,7 +9,7 @@
  * saves for it (and mines more) unless an affordable card is within 80% of its score.
  * Difficulty = clicks per second, reaction time and estimate noise. */
 (function (root) {
-  const { CONFIG, UPGRADE_BY_ID, scaledMod, critZone } =
+  const { CONFIG, UPGRADE_BY_ID, scaledMod, zoneSpec } =
     (typeof module !== 'undefined' && module.exports) ? require('./config.js') : root;
 
   // Difficulty settings live in config.js (CONFIG.CPU_DIFFICULTY).
@@ -77,19 +77,24 @@
     }
 
     // ---------- crit zone aim ----------
-    hitChance(me) {
-      const g = 1 + CONFIG.CRIT_ZONE.matrixGrow * (me.zone || 0);
-      return Math.min(0.95, this.d.zoneHit * g * g);     // bigger zone → easier to hit
+    // Share of attack clicks that end up as crits: each plate (op.maxHp / plates HP) of damage
+    // opens one zone, caught with a chance that grows with zone size and lifetime (Matrix).
+    critRate(me, op, atkCps, matrix = me.zone || 0) {
+      const z = zoneSpec(matrix), g = z.r / CONFIG.CRIT_ZONE.radius;
+      const pHit = Math.min(0.95, this.d.zoneHit * g * g);
+      const caught = 1 - Math.pow(1 - pHit, Math.max(1, z.life * Math.max(atkCps, 0.5)));
+      const chunk = op.maxHp / CONFIG.CRIT_ZONE.plates;
+      return Math.min(0.5, caught * me.atk / chunk);
     }
 
     aim(s, me) {
-      const z = critZone(me.zoneSeed, s.elapsed || 0, me.zone || 0);
-      if (this.rng() < this.hitChance(me)) {
+      const z = me.critZone && me.critZone.active;
+      if (z && this.rng() < this.d.zoneHit) {
         const a = this.rng() * 6.283, d = this.rng() * z.r * 0.6;
         return { x: z.x + Math.cos(a) * d, y: z.y + Math.sin(a) * d };
       }
       let x, y, tries = 0;
-      do { x = 0.15 + this.rng() * 0.7; y = 0.15 + this.rng() * 0.75; } while (Math.hypot(x - z.x, y - z.y) < z.r * 1.6 && ++tries < 8);
+      do { x = 0.15 + this.rng() * 0.7; y = 0.15 + this.rng() * 0.75; } while (z && Math.hypot(x - z.x, y - z.y) < z.r * 1.6 && ++tries < 8);
       return { x, y };
     }
 
@@ -129,7 +134,7 @@
         atkCps, repCps, gatCps,
         myDps: sum(me.activity.dmg), incoming: sum(op.activity.dmg),
         myRep: sum(me.activity.rep), income: Math.max(0.5, sum(me.activity.res)),
-        clickDps: atkCps * me.atk * (1 + this.hitChance(me) * (CONFIG.CRIT_MULT - 1)),
+        clickDps: atkCps * me.atk * (1 + this.critRate(me, op, atkCps) * (CONFIG.CRIT_MULT - 1)),
       };
     }
 
@@ -161,10 +166,10 @@
         if (k === 'atk') rate += v * me.atkMult0 * r.atkCps;
         else if (k === 'autoAtk') rate += v;
         else if (k === 'atkMult') rate += v * (r.clickDps / Math.max(1, me.atkMult0));
-        else if (k === 'zone') {            // Targeting Matrix: extra crit hits from a bigger zone
-          const g0 = 1 + CONFIG.CRIT_ZONE.matrixGrow * (me.zone || 0), g1 = g0 + CONFIG.CRIT_ZONE.matrixGrow * v;
-          const dHit = Math.min(0.95, this.d.zoneHit * g1 * g1) - Math.min(0.95, this.d.zoneHit * g0 * g0);
-          rate += dHit * (CONFIG.CRIT_MULT - 1) * r.atkCps * me.atk;
+        else if (k === 'zone') {            // Targeting Matrix: bigger, longer zones → more caught
+          const m = me.zone || 0;
+          const dCrit = this.critRate(me, op, r.atkCps, m + v) - this.critRate(me, op, r.atkCps, m);
+          rate += dCrit * (CONFIG.CRIT_MULT - 1) * r.atkCps * me.atk;
         }
         else if (k === 'rep') rate += Math.min(v * r.repCps, repairNeed + 1);
         else if (k === 'autoRep') rate += Math.min(v, repairNeed + 1);

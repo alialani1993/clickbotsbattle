@@ -8,7 +8,7 @@ A 2-minute competitive clicker built from the *ClickBots PvP* GDD. Click the ene
 
 **Match length**: Blitz (1:00), Standard (2:00, the default) or Marathon (5:00). Pick it on the menu. In online matches the host's choice applies.
 
-**Crit zone:** a yellow ring roams the enemy bot. Attack clicks that land inside it always crit (×2 damage). The server checks your click position, allowing for about 0.3 seconds of lag. **Targeting Matrix** makes your zone 35% bigger and slower per stack.
+**Armor plates and crit zones:** each bot's HP is split into 10 armor plates, shown as dividers on the HP bars. When your damage breaks a plate, a yellow crit zone opens for you on the enemy bot. Your next click on it is a ×3 crit and uses it up; if you don't hit it within 2.5 seconds it closes. A broken plate only comes back once its whole chunk is repaired, so hovering around one divider can't farm crits. Hitting harder breaks plates faster and earns more crits. **Targeting Matrix** makes your zones 25% bigger and 1 second longer per stack. The server checks the click position, allowing about 0.3 seconds of lag.
 
 **Held abilities:** Energy Shield, Overclock and EMP Blast (6 seconds with the enemy's auto-clickers offline) don't fire when bought. They go into your **2 ability slots** (`ABILITY_SLOTS`), and you fire them with the large buttons under your bot or keys **1–3**. With both slots full you can't buy another ability until you use one. You can see the enemy's held abilities beside their bot.
 
@@ -81,9 +81,9 @@ To keep about **75% of matches ending by knockout and 25% on time**, longer mode
 
 | Mode | priceMult | powerMult | Knockouts | Avg length | First upgrade |
 |---|---|---|---|---|---|
-| Blitz (1:00) | ×1.15 | ×0.43 | 72% | ~52s | ~10s |
-| Standard (2:00) | ×2 | ×0.32 | 77% | ~101s | ~16s |
-| Marathon (5:00) | ×3.5 | ×0.21 | 78% | ~245s | ~20s |
+| Blitz (1:00) | ×1.15 | ×0.46 | 74% | ~50s | ~10s |
+| Standard (2:00) | ×2 | ×0.335 | 72% | ~102s | ~16s |
+| Marathon (5:00) | ×3.5 | ×0.24 | 73% | ~248s | ~21s |
 
 These numbers come from Normal vs Normal cost/benefit CPUs, 200+ matches each. What I learned while tuning:
 - **Per-purchase price growth barely matters.** The first few purchases decide the economy.

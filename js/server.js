@@ -10,7 +10,7 @@
  * for automated balance tests.
  */
 (function (root) {
-  const { CONFIG, UPGRADES, UPGRADE_BY_ID, scaledMod, modePrice, critZone } =
+  const { CONFIG, UPGRADES, UPGRADE_BY_ID, scaledMod, modePrice, zoneSpec } =
     (typeof module !== 'undefined' && module.exports) ? require('./config.js') : root;
 
   const PIDS = ['p1', 'p2'];
@@ -33,10 +33,13 @@
       // temporary effects: seconds remaining
       effects: { shield: 0, overclock: 0, emp: 0 },
       abilities: [],                   // held ability ids (max CONFIG.ABILITY_SLOTS)
-      zoneSeed: 0,                     // phase of this player's crit zone (on the enemy bot)
+      plates: Array(CONFIG.CRIT_ZONE.plates).fill(true),   // armor plates (true = intact)
+      zonePending: 0,                  // plates broken by this player waiting for a zone
+      zoneActive: null,                // { id, x, y, r, until } on the enemy bot, or null
+      zoneId: 0,
       upgrades: {},                    // id -> count
       tierBuys: { bronze: 0, silver: 0, gold: 0 },
-      stats: { clicks: 0, dmg: 0, healed: 0, mined: 0, critHits: 0, attacks: 0 },
+      stats: { clicks: 0, dmg: 0, healed: 0, mined: 0, critHits: 0, attacks: 0, zones: 0 },
       _clickTimes: [],                 // for rate limiting
       _acc: { atk: 0, rep: 0, gat: 0 },// fractional auto accumulators
       _autoReport: { dmg: 0, heal: 0, gain: 0 },
@@ -78,7 +81,6 @@
     reset() {
       const hp = this.baseHp();
       this.players = { p1: newPlayer('p1', this.names.p1, hp), p2: newPlayer('p2', this.names.p2, hp) };
-      this.players.p1.zoneSeed = this.rng(); this.players.p2.zoneSeed = this.rng();
       // One shared shop for both players: buying a card replaces it for everyone (race to the upgrade).
       this.offers = {};
       for (const t of Object.keys(CONFIG.TIERS)) this.rollOffers(t);
@@ -138,7 +140,7 @@
         p.abilities.push(u.id);        // held until the player fires it
       } else {
         for (const [k, v] of Object.entries(scaledMod(u, this.mode))) {   // per-mode power
-          if (k === 'maxHp') { p.maxHp += v; p.hp = Math.min(p.maxHp, p.hp + v); }
+          if (k === 'maxHp') { p.maxHp += v; p.hp = Math.min(p.maxHp, p.hp + v); this.restorePlates(p); }
           else p[k] += v;
         }
       }
@@ -165,9 +167,9 @@
         if (msg.a === 'attack') {
           p.stats.attacks++;
           const crit = this.zoneHit(p, msg.x, msg.y);
-          if (crit) p.stats.critHits++;
+          if (crit) { p.stats.critHits++; p.zoneActive = null; this.nextZone(p); }    // zone used up
           let dmg = p.atk * p.atkMult * oc * (crit ? CONFIG.CRIT_MULT : 1);
-          dmg = this.damage(o, dmg);
+          dmg = this.damage(o, dmg, p);
           p.stats.dmg += dmg;
           this.record(p, 'dmg', dmg, false);
           this.events.push({ k: 'hit', from: pid, to: o.id, amt: Math.round(dmg), crit });
@@ -207,15 +209,44 @@
       }
     }
 
-    // Did an attack click at (x, y) — 0..1 in the enemy bot's box — land in p's crit zone?
-    // Checks the last ~0.3s of zone movement so network lag doesn't steal crits.
+    // Did an attack click at (x, y) — 0..1 in the enemy bot's box — land in p's active crit zone?
+    // 0.3s of grace after expiry so a guest's click in flight still counts.
     zoneHit(p, x, y) {
-      if (typeof x !== 'number' || typeof y !== 'number') return false;
-      for (const back of [0, 0.08, 0.16, 0.24, 0.32]) {
-        const z = critZone(p.zoneSeed, Math.max(0, this.elapsed - back), p.zone);
-        if (Math.hypot(x - z.x, (y - z.y) * 1.05) <= z.r * 1.08) return true;
+      const z = p.zoneActive;
+      if (!z || typeof x !== 'number' || typeof y !== 'number' || this.elapsed > z.until + 0.3) return false;
+      return Math.hypot(x - z.x, (y - z.y) * 1.05) <= z.r * 1.15;
+    }
+
+    spawnZone(p) {
+      p.zonePending = Math.max(0, p.zonePending - 1);
+      p.stats.zones++;
+      const z = zoneSpec(p.zone);
+      p.zoneActive = {
+        id: ++p.zoneId,
+        x: 0.3 + this.rng() * 0.4, y: 0.3 + this.rng() * 0.42,
+        r: z.r, until: this.elapsed + z.life,
+      };
+      this.events.push({ k: 'zone', pid: p.id });
+    }
+
+    nextZone(p) { if (!p.zoneActive && p.zonePending > 0) this.spawnZone(p); }
+
+    // A plate breaks when HP falls to its lower divider; the attacker earns a crit zone.
+    breakPlates(t, attacker) {
+      const n = t.plates.length, chunk = t.maxHp / n;
+      for (let i = 1; i < n; i++) {                       // plate 0 breaking = destroyed bot
+        if (t.plates[i] && t.hp <= i * chunk) {
+          t.plates[i] = false;
+          this.events.push({ k: 'plate', pid: t.id, i });
+          if (attacker) { attacker.zonePending++; this.nextZone(attacker); }
+        }
       }
-      return false;
+    }
+
+    // A broken plate comes back only when its whole chunk is repaired.
+    restorePlates(p) {
+      const n = p.plates.length, chunk = p.maxHp / n;
+      for (let i = 1; i < n; i++) if (!p.plates[i] && p.hp >= (i + 1) * chunk - 0.001) p.plates[i] = true;
     }
 
     useAbility(pid, slot) {
@@ -251,16 +282,18 @@
       return bs.reduce((s, b) => s + fn(b), 0) / span;
     }
 
-    damage(target, amt) {
+    damage(target, amt, attacker) {
       if (target.effects.shield > 0) amt *= (1 - CONFIG.SHIELD_REDUCTION);
       const dealt = Math.min(target.hp, amt);
       target.hp -= dealt;
+      if (dealt > 0) this.breakPlates(target, attacker);
       return dealt;
     }
 
     heal(p, amt) {
       const h = Math.min(p.maxHp - p.hp, amt);
       p.hp += h;
+      if (h > 0) this.restorePlates(p);
       return h;
     }
 
@@ -309,11 +342,12 @@
         p._acc.rep += p.autoRep * oc * on * dt;
         p._acc.gat += p.autoGat * oc * on * dt;
 
-        if (p._acc.atk >= 1) { const a = Math.floor(p._acc.atk); p._acc.atk -= a; const d = this.damage(o, a); p.stats.dmg += d; p._autoReport.dmg += d; this.record(p, 'dmg', d, true); }
+        if (p._acc.atk >= 1) { const a = Math.floor(p._acc.atk); p._acc.atk -= a; const d = this.damage(o, a, p); p.stats.dmg += d; p._autoReport.dmg += d; this.record(p, 'dmg', d, true); }
         if (p._acc.rep >= 1) { const a = Math.floor(p._acc.rep); p._acc.rep -= a; const h = this.heal(p, a); p.stats.healed += h; p._autoReport.heal += h; this.record(p, 'rep', h, true); }
         if (p._acc.gat >= 1) { const a = Math.floor(p._acc.gat); p._acc.gat -= a; p.res += a; p.stats.mined += a; p._autoReport.gain += a; this.record(p, 'res', a, true); }
 
         for (const e of Object.keys(p.effects)) p.effects[e] = Math.max(0, p.effects[e] - dt);
+        if (p.zoneActive && this.elapsed > p.zoneActive.until + 0.3) { p.zoneActive = null; this.nextZone(p); }   // missed it
       }
 
       // Report auto-clicker output twice a second so clients can show floating numbers.
@@ -366,14 +400,18 @@
         atk: +(p.atk * p.atkMult).toFixed(1), rep: p.rep, gat: p.gat, crit: p.crit,
         autoAtk: p.autoAtk, autoRep: p.autoRep, autoGat: p.autoGat,
         effects: { shield: +p.effects.shield.toFixed(1), overclock: +p.effects.overclock.toFixed(1), emp: +p.effects.emp.toFixed(1) },
-        abilities: p.abilities.slice(), zone: p.zone, zoneSeed: p.zoneSeed,
+        abilities: p.abilities.slice(), zone: p.zone, plates: p.plates.slice(),
+        critZone: {
+          pending: p.zonePending,
+          active: p.zoneActive && { id: p.zoneActive.id, x: +p.zoneActive.x.toFixed(3), y: +p.zoneActive.y.toFixed(3), r: p.zoneActive.r, left: +Math.max(0, p.zoneActive.until - this.elapsed).toFixed(2) },
+        },
         upgrades: p.upgrades,
         costs: Object.fromEntries(Object.keys(CONFIG.TIERS).map(t => [t, this.tierCost(p.id, t)])),
         stats: {
           clicks: p.stats.clicks, dmg: Math.round(p.stats.dmg), healed: Math.round(p.stats.healed), mined: Math.round(p.stats.mined),
           avgCps: this.elapsed > 0 ? +(p.stats.clicks / this.elapsed).toFixed(2) : 0,
           peakCps: +p.peakCps.toFixed(1),
-          critHits: p.stats.critHits, attacks: p.stats.attacks,
+          critHits: p.stats.critHits, attacks: p.stats.attacks, zones: p.stats.zones,
         },
         cps: this.phase === 'playing' ? +this.cps(p).toFixed(1) : 0,
         // per-second output over ACTIVITY_WINDOW: [manual, auto]
