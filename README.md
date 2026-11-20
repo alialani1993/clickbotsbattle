@@ -8,6 +8,10 @@ A 2-minute competitive clicker built from the *ClickBots PvP* GDD. Click the ene
 
 **Match length**: Blitz (1:00), Standard (2:00, the default) or Marathon (5:00). Pick it on the menu. In online matches the host's choice applies.
 
+**Crit zone:** a yellow ring roams the enemy bot. Attack clicks that land inside it always crit (×2 damage). The server checks your click position, allowing for about 0.3 seconds of lag. **Targeting Matrix** makes your zone 35% bigger and slower per stack.
+
+**Held abilities:** Energy Shield, Overclock and EMP Blast (6 seconds with the enemy's auto-clickers offline) don't fire when bought. They go into your **2 ability slots** (`ABILITY_SLOTS`), and you fire them with the large buttons under your bot or keys **1–3**. With both slots full you can't buy another ability until you use one. You can see the enemy's held abilities beside their bot.
+
 **Reading your opponent**
 - **Live CPS**: next to each name, an average of clicks per second over the last 5 seconds (the CPU's too).
 - **Activity bars** under the crystal: for damage, repair and mining, your column (teal) sits beside your opponent's (red). Each shows output per second over the last 10 seconds. The striped part is auto-clicker output. The taller of the two columns in a pair is full height, so you're always comparing yourself with your opponent.
@@ -77,9 +81,9 @@ To keep about **75% of matches ending by knockout and 25% on time**, longer mode
 
 | Mode | priceMult | powerMult | Knockouts | Avg length | First upgrade |
 |---|---|---|---|---|---|
-| Blitz (1:00) | ×1.15 | ×0.47 | 75% | ~50s | ~10s |
-| Standard (2:00) | ×2 | ×0.32 | 72% | ~105s | ~16s |
-| Marathon (5:00) | ×3.5 | ×0.225 | 74% | ~255s | ~21s |
+| Blitz (1:00) | ×1.15 | ×0.43 | 72% | ~52s | ~10s |
+| Standard (2:00) | ×2 | ×0.32 | 77% | ~101s | ~16s |
+| Marathon (5:00) | ×3.5 | ×0.21 | 78% | ~245s | ~20s |
 
 These numbers come from Normal vs Normal cost/benefit CPUs, 200+ matches each. What I learned while tuning:
 - **Per-purchase price growth barely matters.** The first few purchases decide the economy.

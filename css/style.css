@@ -197,6 +197,32 @@ body.fixed-stage { background: radial-gradient(1400px 800px at 50% 40%, #151c3d 
 .effect-tags { position: absolute; top: -6px; left: 0; right: 0; display: flex; gap: 4px; justify-content: center; pointer-events: none; }
 .effect-tag { font-size: 11px; font-weight: 700; background: rgba(0,0,0,.6); border-radius: 6px; padding: 1px 6px; border: 1px solid var(--line); }
 
+/* ---------- crit zone + held abilities ---------- */
+.crit-zone { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; z-index: 2;
+  border: 2px solid rgba(255, 225, 74, .9); box-shadow: 0 0 12px rgba(255, 225, 74, .55), inset 0 0 10px rgba(255, 225, 74, .35);
+  background: radial-gradient(circle, rgba(255, 225, 74, .28) 0 22%, transparent 24% 100%); }
+.crit-zone i { position: absolute; inset: -6px; border-radius: 50%; border: 1px dashed rgba(255, 225, 74, .55); animation: spin 4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- held abilities ---------- */
+.abil { display: flex; gap: 12px; justify-content: center; margin: 2px 0; }
+.abil-slot { position: relative; width: 66px; height: 66px; border-radius: 50%; display: grid; place-items: center;
+  background: #0d1230; border: 3px solid var(--line); cursor: pointer; padding: 0; touch-action: manipulation; transition: transform .08s; }
+.abil-slot .abil-ico { font-size: 32px; line-height: 1; }
+.abil-slot kbd { position: absolute; right: -3px; bottom: -3px; font: 700 11px var(--font); background: var(--bg); color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; }
+.abil-slot.empty { border-style: dashed; opacity: .55; cursor: default; }
+.abil-slot.filled { border-color: var(--gold); box-shadow: 0 0 12px rgba(255, 204, 77, .35); animation: ready 1.6s ease-in-out infinite alternate; }
+.abil-slot.filled.shield { border-color: #6ec8ff; box-shadow: 0 0 12px rgba(110, 200, 255, .45); }
+.abil-slot.filled.overclock { border-color: #b06bff; box-shadow: 0 0 12px rgba(176, 107, 255, .45); }
+.abil-slot.filled:active { transform: scale(.9); }
+@keyframes ready { to { box-shadow: 0 0 20px rgba(255, 255, 255, .25); } }
+.abil.op .abil-slot { width: 28px; height: 28px; font-size: 15px; cursor: default; border-width: 1.5px; animation: none; }
+.abil.op .abil-slot.filled { border-color: var(--op); box-shadow: 0 0 8px rgba(255, 79, 109, .4); }
+@media (hover: none) { .abil-slot kbd { display: none; } }
+.card.slots-full { opacity: .35; }
+.bot.emped svg { filter: grayscale(.85) brightness(.75); }
+.bot.zap svg { animation: shake .25s 2; }
+
 .click-pip {
   position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
   pointer-events: none; animation: pip .6s ease-out forwards; z-index: 3;
@@ -328,7 +354,10 @@ body.fixed-stage { background: radial-gradient(1400px 800px at 50% 40%, #151c3d 
 
 /* ---------- Responsive ---------- */
 @container game (max-width: 700px) {
-  .hud { gap: 8px; padding: 8px; }
+  .abil { gap: 8px; }
+  .abil-slot { width: 62px; height: 62px; } .abil-slot .abil-ico { font-size: 29px; }
+  .abil.op .abil-slot { width: 24px; height: 24px; font-size: 13px; }
+      .hud { gap: 8px; padding: 8px; }
   .hud-name { font-size: 12px; gap: 5px; }
   .hud-tag { display: none; }
   .cps { min-width: 0; font-size: 10px; padding: 0 4px; }

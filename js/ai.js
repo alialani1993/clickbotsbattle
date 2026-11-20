@@ -9,7 +9,7 @@
  * saves for it (and mines more) unless an affordable card is within 80% of its score.
  * Difficulty = clicks per second, reaction time and estimate noise. */
 (function (root) {
-  const { CONFIG, UPGRADE_BY_ID, scaledMod } =
+  const { CONFIG, UPGRADE_BY_ID, scaledMod, critZone } =
     (typeof module !== 'undefined' && module.exports) ? require('./config.js') : root;
 
   // Difficulty settings live in config.js (CONFIG.CPU_DIFFICULTY).
@@ -35,7 +35,9 @@
       const decay = Math.pow(0.5, dt / 8);                    // ~8s half-life
       for (const k in this.clicks) this.clicks[k] *= decay;
       this.buyCooldown -= dt;
-      if (this.buyCooldown <= 0 && this.tryBuy(s, me, op)) this.buyCooldown = this.d.buyDelay;
+      if (this.buyCooldown <= 0) {
+        if (this.tryAbility(s, me, op) || this.tryBuy(s, me, op)) this.buyCooldown = this.d.buyDelay;
+      }
 
       // jittery click rate so it feels human
       this.budget += this.d.cps * dt * (0.7 + this.rng() * 0.6);
@@ -43,7 +45,7 @@
         this.budget -= 1;
         const a = this.chooseClick(s, me, op);
         this.clicks[a] += 1;
-        this.send({ a });
+        this.send(a === 'attack' ? { a, ...this.aim(s, me) } : { a });
       }
     }
 
@@ -74,6 +76,45 @@
       return 'gather';
     }
 
+    // ---------- crit zone aim ----------
+    hitChance(me) {
+      const g = 1 + CONFIG.CRIT_ZONE.matrixGrow * (me.zone || 0);
+      return Math.min(0.95, this.d.zoneHit * g * g);     // bigger zone → easier to hit
+    }
+
+    aim(s, me) {
+      const z = critZone(me.zoneSeed, s.elapsed || 0, me.zone || 0);
+      if (this.rng() < this.hitChance(me)) {
+        const a = this.rng() * 6.283, d = this.rng() * z.r * 0.6;
+        return { x: z.x + Math.cos(a) * d, y: z.y + Math.sin(a) * d };
+      }
+      let x, y, tries = 0;
+      do { x = 0.15 + this.rng() * 0.7; y = 0.15 + this.rng() * 0.75; } while (Math.hypot(x - z.x, y - z.y) < z.r * 1.6 && ++tries < 8);
+      return { x, y };
+    }
+
+    // ---------- held abilities ----------
+    tryAbility(s, me, op) {
+      if (!me.abilities.length) return false;
+      const sum = a => a[0] + a[1];
+      const incoming = sum(op.activity.dmg), myRep = sum(me.activity.rep), myDps = sum(me.activity.dmg);
+      const full = me.abilities.length >= CONFIG.ABILITY_SLOTS;
+      this.heldFull = full ? (this.heldFull || 0) + 1 : 0;
+      const want = me.abilities.findIndex(id => {
+        if (id === 'shield') return me.effects.shield <= 0 &&
+          (op.effects.overclock > 0 || incoming > Math.max(6, myRep * 1.5) || (me.hp < me.maxHp * 0.45 && incoming > 2));
+        if (id === 'overclock') return me.effects.overclock <= 0 && op.effects.shield <= 0 && (myDps > 6 || s.timeLeft < 20);
+        if (id === 'emp') return op.effects.emp <= 0 && (op.autoAtk + op.autoRep + op.autoGat * 0.3) >= 4;
+        return false;
+      });
+      // Sitting on full slots for a while: fire something so a new ability can be bought.
+      const slot = want >= 0 ? want : (this.heldFull > 12 || s.timeLeft < 6 ? 0 : -1);
+      if (slot < 0) return false;
+      this.send({ a: 'ability', slot });
+      this.heldFull = 0;
+      return true;
+    }
+
     // ---------- shopping: cost / benefit ----------
     // Every offered card gets a benefit in "HP swing" over the expected rest of the match:
     // damage dealt to the enemy and damage prevented/repaired on itself count 1:1, extra
@@ -88,7 +129,7 @@
         atkCps, repCps, gatCps,
         myDps: sum(me.activity.dmg), incoming: sum(op.activity.dmg),
         myRep: sum(me.activity.rep), income: Math.max(0.5, sum(me.activity.res)),
-        clickDps: atkCps * me.atk * (1 + me.crit * (CONFIG.CRIT_MULT - 1)),
+        clickDps: atkCps * me.atk * (1 + this.hitChance(me) * (CONFIG.CRIT_MULT - 1)),
       };
     }
 
@@ -103,10 +144,15 @@
     benefit(u, s, me, op, r, H, wait, hpPerRes) {
       const live = Math.max(0, H - wait);
       if (!live) return 0;
-      if (u.kind === 'timed') {
-        const dur = Math.min(u.duration, live);
-        if (u.effect === 'shield') return dur * r.incoming * CONFIG.SHIELD_REDUCTION * (me.effects.shield > 1 ? 0.2 : 1);
-        if (u.effect === 'overclock') return dur * (r.myDps + r.myRep * 0.5 + r.income * hpPerRes * 0.5) * (me.effects.overclock > 1 ? 0.2 : 1);
+      if (u.kind === 'active') {        // held: fired at a good moment later
+        if (me.abilities.length >= CONFIG.ABILITY_SLOTS) return 0;
+        // Held abilities are fired at the best moment (vs a spike, an Overclock, a big auto build),
+        // so they're worth more than their average-case effect: TIMING_BONUS.
+        const dur = Math.min(u.duration, live), TIMING_BONUS = 2.5;
+        const spike = Math.max(r.incoming, op.atk * this.d.cps * 0.5 + op.autoAtk, 4);
+        if (u.effect === 'shield') return dur * spike * CONFIG.SHIELD_REDUCTION * TIMING_BONUS;
+        if (u.effect === 'overclock') return dur * (r.myDps + r.myRep * 0.5 + r.income * hpPerRes * 0.5) * TIMING_BONUS;
+        if (u.effect === 'emp') return dur * (op.autoAtk + Math.min(op.autoRep, r.myDps) + op.autoGat * hpPerRes * 0.5) * TIMING_BONUS;
         return 0;
       }
       let rate = 0, once = 0;
@@ -115,7 +161,11 @@
         if (k === 'atk') rate += v * me.atkMult0 * r.atkCps;
         else if (k === 'autoAtk') rate += v;
         else if (k === 'atkMult') rate += v * (r.clickDps / Math.max(1, me.atkMult0));
-        else if (k === 'crit') rate += v * (CONFIG.CRIT_MULT - 1) * r.atkCps * me.atk;
+        else if (k === 'zone') {            // Targeting Matrix: extra crit hits from a bigger zone
+          const g0 = 1 + CONFIG.CRIT_ZONE.matrixGrow * (me.zone || 0), g1 = g0 + CONFIG.CRIT_ZONE.matrixGrow * v;
+          const dHit = Math.min(0.95, this.d.zoneHit * g1 * g1) - Math.min(0.95, this.d.zoneHit * g0 * g0);
+          rate += dHit * (CONFIG.CRIT_MULT - 1) * r.atkCps * me.atk;
+        }
         else if (k === 'rep') rate += Math.min(v * r.repCps, repairNeed + 1);
         else if (k === 'autoRep') rate += Math.min(v, repairNeed + 1);
         else if (k === 'gat') rate += v * r.gatCps * hpPerRes * 0.5;      // income → future upgrades

@@ -228,6 +228,8 @@
   // ---------- wiring ----------
   function init() {
     setupStage();
+    const slotsQ = +new URLSearchParams(location.search).get('slots');   // testing: ?slots=3
+    if (slotsQ >= 1 && slotsQ <= 4) CONFIG.ABILITY_SLOTS = slotsQ;
     UI.init();
     $('nameInput').value = store.get('cb_name', '');
     $('nameInput').addEventListener('change', () => store.set('cb_name', myName()));

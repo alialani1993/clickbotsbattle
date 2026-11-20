@@ -10,7 +10,7 @@
  * for automated balance tests.
  */
 (function (root) {
-  const { CONFIG, UPGRADES, UPGRADE_BY_ID, scaledMod, modePrice } =
+  const { CONFIG, UPGRADES, UPGRADE_BY_ID, scaledMod, modePrice, critZone } =
     (typeof module !== 'undefined' && module.exports) ? require('./config.js') : root;
 
   const PIDS = ['p1', 'p2'];
@@ -27,14 +27,16 @@
       res: CONFIG.START_RESOURCES,
       // per-click stats
       atk: CONFIG.BASE_ATTACK, rep: CONFIG.BASE_REPAIR, gat: CONFIG.BASE_GATHER,
-      atkMult: 1, crit: 0,
+      atkMult: 1, crit: 0, zone: 0,     // zone = Targeting Matrix stacks (bigger, slower crit zone)
       // auto-clickers (per second)
       autoAtk: 0, autoRep: 0, autoGat: 0,
       // temporary effects: seconds remaining
-      effects: { shield: 0, overclock: 0 },
+      effects: { shield: 0, overclock: 0, emp: 0 },
+      abilities: [],                   // held ability ids (max CONFIG.ABILITY_SLOTS)
+      zoneSeed: 0,                     // phase of this player's crit zone (on the enemy bot)
       upgrades: {},                    // id -> count
       tierBuys: { bronze: 0, silver: 0, gold: 0 },
-      stats: { clicks: 0, dmg: 0, healed: 0, mined: 0 },
+      stats: { clicks: 0, dmg: 0, healed: 0, mined: 0, critHits: 0, attacks: 0 },
       _clickTimes: [],                 // for rate limiting
       _acc: { atk: 0, rep: 0, gat: 0 },// fractional auto accumulators
       _autoReport: { dmg: 0, heal: 0, gain: 0 },
@@ -76,6 +78,7 @@
     reset() {
       const hp = this.baseHp();
       this.players = { p1: newPlayer('p1', this.names.p1, hp), p2: newPlayer('p2', this.names.p2, hp) };
+      this.players.p1.zoneSeed = this.rng(); this.players.p2.zoneSeed = this.rng();
       // One shared shop for both players: buying a card replaces it for everyone (race to the upgrade).
       this.offers = {};
       for (const t of Object.keys(CONFIG.TIERS)) this.rollOffers(t);
@@ -131,8 +134,8 @@
     }
 
     applyUpgrade(p, u) {
-      if (u.kind === 'timed') {
-        p.effects[u.effect] = Math.max(p.effects[u.effect], 0) + u.duration;
+      if (u.kind === 'active') {
+        p.abilities.push(u.id);        // held until the player fires it
       } else {
         for (const [k, v] of Object.entries(scaledMod(u, this.mode))) {   // per-mode power
           if (k === 'maxHp') { p.maxHp += v; p.hp = Math.min(p.maxHp, p.hp + v); }
@@ -147,6 +150,7 @@
       if (!msg || !this.players[pid]) return;
       if (msg.a === 'rematch') return this.voteRematch(pid);
       if (msg.a === 'name') return this.setName(pid, msg.name);
+      if (msg.a === 'ability') return this.useAbility(pid, msg.slot);
       if (this.phase !== 'playing') return;
 
       const p = this.players[pid];
@@ -159,7 +163,9 @@
         const oc = p.effects.overclock > 0 ? CONFIG.OVERCLOCK_MULT : 1;
 
         if (msg.a === 'attack') {
-          const crit = this.rng() < p.crit;
+          p.stats.attacks++;
+          const crit = this.zoneHit(p, msg.x, msg.y);
+          if (crit) p.stats.critHits++;
           let dmg = p.atk * p.atkMult * oc * (crit ? CONFIG.CRIT_MULT : 1);
           dmg = this.damage(o, dmg);
           p.stats.dmg += dmg;
@@ -189,6 +195,7 @@
         if (msg.id && msg.id !== id) { this.events.push({ k: 'miss', pid, tier, idx: msg.idx, id: msg.id }); return; }
         const u = UPGRADE_BY_ID[id];
         if (!u) return;
+        if (u.kind === 'active' && p.abilities.length >= CONFIG.ABILITY_SLOTS) { this.events.push({ k: 'full', pid }); return; }
         const cost = this.tierCost(pid, tier);
         if (p.res < cost) return;
         p.res -= cost;
@@ -198,6 +205,28 @@
         this.events.push({ k: 'buy', pid, id, tier, idx: msg.idx });
         this.history.buys.push([+this.elapsed.toFixed(1), pid, id]);
       }
+    }
+
+    // Did an attack click at (x, y) — 0..1 in the enemy bot's box — land in p's crit zone?
+    // Checks the last ~0.3s of zone movement so network lag doesn't steal crits.
+    zoneHit(p, x, y) {
+      if (typeof x !== 'number' || typeof y !== 'number') return false;
+      for (const back of [0, 0.08, 0.16, 0.24, 0.32]) {
+        const z = critZone(p.zoneSeed, Math.max(0, this.elapsed - back), p.zone);
+        if (Math.hypot(x - z.x, (y - z.y) * 1.05) <= z.r * 1.08) return true;
+      }
+      return false;
+    }
+
+    useAbility(pid, slot) {
+      if (this.phase !== 'playing') return;
+      const p = this.players[pid], id = p.abilities[slot];
+      const u = UPGRADE_BY_ID[id];
+      if (!u) return;
+      p.abilities.splice(slot, 1);
+      const target = u.target === 'enemy' ? this.players[other(pid)] : p;
+      target.effects[u.effect] = Math.max(target.effects[u.effect], 0) + u.duration;
+      this.events.push({ k: 'ability', pid, id });
     }
 
     allowClick(p) {                    // sliding-window rate limit
@@ -274,10 +303,11 @@
       for (const pid of PIDS) {
         const p = this.players[pid], o = this.players[other(pid)];
         const oc = p.effects.overclock > 0 ? CONFIG.OVERCLOCK_MULT : 1;
+        const on = p.effects.emp > 0 ? 0 : 1;          // EMP: auto-clickers offline
 
-        p._acc.atk += p.autoAtk * oc * dt;
-        p._acc.rep += p.autoRep * oc * dt;
-        p._acc.gat += p.autoGat * oc * dt;
+        p._acc.atk += p.autoAtk * oc * on * dt;
+        p._acc.rep += p.autoRep * oc * on * dt;
+        p._acc.gat += p.autoGat * oc * on * dt;
 
         if (p._acc.atk >= 1) { const a = Math.floor(p._acc.atk); p._acc.atk -= a; const d = this.damage(o, a); p.stats.dmg += d; p._autoReport.dmg += d; this.record(p, 'dmg', d, true); }
         if (p._acc.rep >= 1) { const a = Math.floor(p._acc.rep); p._acc.rep -= a; const h = this.heal(p, a); p.stats.healed += h; p._autoReport.heal += h; this.record(p, 'rep', h, true); }
@@ -335,13 +365,15 @@
         hp: Math.round(p.hp), maxHp: p.maxHp, res: Math.floor(p.res),
         atk: +(p.atk * p.atkMult).toFixed(1), rep: p.rep, gat: p.gat, crit: p.crit,
         autoAtk: p.autoAtk, autoRep: p.autoRep, autoGat: p.autoGat,
-        effects: { shield: +p.effects.shield.toFixed(1), overclock: +p.effects.overclock.toFixed(1) },
+        effects: { shield: +p.effects.shield.toFixed(1), overclock: +p.effects.overclock.toFixed(1), emp: +p.effects.emp.toFixed(1) },
+        abilities: p.abilities.slice(), zone: p.zone, zoneSeed: p.zoneSeed,
         upgrades: p.upgrades,
         costs: Object.fromEntries(Object.keys(CONFIG.TIERS).map(t => [t, this.tierCost(p.id, t)])),
         stats: {
           clicks: p.stats.clicks, dmg: Math.round(p.stats.dmg), healed: Math.round(p.stats.healed), mined: Math.round(p.stats.mined),
           avgCps: this.elapsed > 0 ? +(p.stats.clicks / this.elapsed).toFixed(2) : 0,
           peakCps: +p.peakCps.toFixed(1),
+          critHits: p.stats.critHits, attacks: p.stats.attacks,
         },
         cps: this.phase === 'playing' ? +this.cps(p).toFixed(1) : 0,
         // per-second output over ACTIVITY_WINDOW: [manual, auto]
@@ -353,6 +385,8 @@
       const snap = {
         phase: this.phase, round: this.round,
         mode: this.mode, matchSeconds: this.matchSeconds,
+        elapsed: +this.elapsed.toFixed(3),            // drives the crit zone animation
+        abilitySlots: CONFIG.ABILITY_SLOTS,
         offers: this.offers,
         timeLeft: +this.timeLeft.toFixed(2),
         countdown: +this.countdown.toFixed(2),

@@ -2,7 +2,7 @@
  * Pure view: takes server snapshots and draws them. Inputs are forwarded
  * through ui.onAction(msg); the UI never changes game state itself. */
 (function (root) {
-  const { CONFIG, UPGRADE_BY_ID, describeUpgrade } = root;
+  const { CONFIG, UPGRADE_BY_ID, describeUpgrade, critZone } = root;
   const $ = id => document.getElementById(id);
 
   // ---------- art ----------
@@ -98,12 +98,21 @@
       this.el.opBot.innerHTML = robotSVG('#ff4f6d', '#8f1d33', 'op') + '<div class="effect-tags"></div>';
       this.el.node.innerHTML = crystalSVG();
       this.initActivity();
+      this.initAbilities();
+      this.zoneEl = document.createElement('div');
+      this.zoneEl.className = 'crit-zone';
+      this.zoneEl.innerHTML = '<i></i>';
+      this.el.opBot.appendChild(this.zoneEl);
+      this.zoneTick();
 
       const bind = (el, a) => el.addEventListener('pointerdown', e => {
         e.preventDefault();
         SFX.unlock();
         restart(el, 'press', 90);
-        this.onAction && this.onAction({ a });
+        if (a === 'attack') {            // send where on the enemy bot we clicked (crit zone check)
+          const r = el.getBoundingClientRect();
+          this.onAction && this.onAction({ a, x: +((e.clientX - r.left) / r.width).toFixed(3), y: +((e.clientY - r.top) / r.height).toFixed(3) });
+        } else this.onAction && this.onAction({ a });
       });
       bind(this.el.meBot, 'repair');
       bind(this.el.opBot, 'attack');
@@ -188,6 +197,9 @@
       this.upgIcons('opUpg', op.upgrades);
       this.botState(this.el.meBot, me);
       this.botState(this.el.opBot, op);
+      if (s.abilitySlots) CONFIG.ABILITY_SLOTS = s.abilitySlots;   // host's setting wins online
+      this.abilities(me, op);
+      this._zone = { seed: me.zoneSeed, matrix: me.zone || 0, t: s.elapsed || 0, at: performance.now(), playing: s.phase === 'playing' };
       this.shop(me, s.phase === 'playing', s.offers);
       this.activity(me, op);
 
@@ -212,13 +224,13 @@
     },
 
     statsLine(el, p) {
-      const key = [p.atk, p.rep, p.gat, p.crit, p.autoAtk, p.autoRep, p.autoGat].join();
+      const key = [p.atk, p.rep, p.gat, p.zone, p.autoAtk, p.autoRep, p.autoGat].join();
       if (el._k === key) return; el._k = key;
       const autos = [];
       if (p.autoAtk) autos.push(`⚔️${p.autoAtk}/s`);
       if (p.autoRep) autos.push(`🛠️${p.autoRep}/s`);
       if (p.autoGat) autos.push(`◆${p.autoGat}/s`);
-      el.innerHTML = `ATK <b>${p.atk}</b> · REP <b>${p.rep}</b> · MINE <b>${p.gat}</b>${p.crit ? ` · CRIT <b>${Math.round(p.crit * 100)}%</b>` : ''}`
+      el.innerHTML = `ATK <b>${p.atk}</b> · REP <b>${p.rep}</b> · MINE <b>${p.gat}</b>${p.zone ? ` · ZONE <b>+${p.zone}</b>` : ''}`
         + (autos.length ? `<br>🤖 ${autos.join(' ')}` : '');
     },
 
@@ -242,6 +254,8 @@
       const tags = [];
       if (p.effects.shield > 0) tags.push(`🔰 ${Math.ceil(p.effects.shield)}s`);
       if (p.effects.overclock > 0) tags.push(`🌀 ${Math.ceil(p.effects.overclock)}s`);
+      if (p.effects.emp > 0) tags.push(`📡 autos off ${Math.ceil(p.effects.emp)}s`);
+      el.classList.toggle('emped', p.effects.emp > 0);
       const tagEl = el.querySelector('.effect-tags');
       const k = tags.join('|');
       if (tagEl._k !== k) { tagEl._k = k; tagEl.innerHTML = tags.map(x => `<span class="effect-tag">${x}</span>`).join(''); }
@@ -265,7 +279,13 @@
             </div>
           </div>`).join('');
       }
-      this.el.shop.querySelectorAll('.card').forEach(c => { c.disabled = !active || me.res < +c.dataset.cost; });
+      const full = me.abilities.length >= CONFIG.ABILITY_SLOTS;
+      this.el.shop.querySelectorAll('.card').forEach(c => {
+        const isActive = UPGRADE_BY_ID[c.dataset.id].kind === 'active';
+        c.classList.toggle('active-card', isActive);
+        c.classList.toggle('slots-full', isActive && full);
+        c.disabled = !active || me.res < +c.dataset.cost || (isActive && full);
+      });
     },
 
     // ---------- events → FX ----------
@@ -300,6 +320,14 @@
           restart(card, 'taken', 900);
           if (!this._missed.has(ev.tier + ev.idx)) this.float(card, `Enemy took ${u.icon} ${u.name}`, 'taken');
         }
+      } else if (ev.k === 'ability') {
+        const u = UPGRADE_BY_ID[ev.id];
+        const target = u.target === 'enemy' ? (ev.pid === myId ? this.el.opBot : this.el.meBot) : botOf(ev.pid);
+        this.float(target, `${u.icon} ${u.name}!`, 'buy');
+        restart(target, 'zap', 500);
+        ev.pid === myId ? SFX.go() : SFX.tick();
+      } else if (ev.k === 'full' && ev.pid === myId) {
+        this.float(this.abilMe, 'Ability slots full: use one first', 'miss');
       } else if (ev.k === 'miss' && ev.pid === myId) {
         const u = UPGRADE_BY_ID[ev.id], card = this.card(ev.tier, ev.idx);
         this.float(card || this.el.shop, `Too slow! ${u ? u.icon + ' ' + u.name : ''} was taken`, 'miss');
@@ -365,6 +393,61 @@
           ${[0, T / 2, T].map(t => `<text x="${x(t)}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="${t === 0 ? 'start' : t === T ? 'end' : 'middle'}">${fmtT(t)}</text>`).join('')}
         </svg>
         ${golds.length ? '<div class="g-foot">Gold upgrades: yours above the graph, the enemy\'s below</div>' : ''}`;
+    },
+
+    // ---------- held abilities ----------
+    // Large ability buttons in a row under your bot; enemy's held abilities as small icons under theirs.
+    initAbilities() {
+      const mk = side => { const d = document.createElement('div'); d.className = `abil abil-under ${side}`; return d; };
+      this.abilMe = mk('me'); this.abilOp = mk('op');
+      this.el.meBot.after(this.abilMe); this.el.opBot.after(this.abilOp);
+      this.abilMe.addEventListener('pointerdown', e => {
+        const b = e.target.closest('.abil-slot');
+        if (!b) return;
+        e.preventDefault(); e.stopPropagation();
+        if (b.classList.contains('filled')) this.onAction && this.onAction({ a: 'ability', slot: +b.dataset.slot });
+      });
+      document.addEventListener('keydown', e => {          // desktop: keys 1–3 fire abilities
+        if (!document.getElementById('game').classList.contains('active')) return;
+        const n = +e.key;
+        if (n >= 1 && n <= CONFIG.ABILITY_SLOTS) { this.onAction && this.onAction({ a: 'ability', slot: n - 1 }); e.preventDefault(); }
+      });
+    },
+
+    abilities(me, op) {
+      const slots = CONFIG.ABILITY_SLOTS;
+      const draw = (el, p, mine) => {
+        const key = p.abilities.join() + '|' + slots;
+        if (el._k === key) return; el._k = key;
+        el.dataset.n = slots;
+        let html = '';
+        for (let i = 0; i < slots; i++) {
+          const u = UPGRADE_BY_ID[p.abilities[i]];
+          html += mine
+            ? `<button class="abil-slot ${u ? 'filled ' + u.effect : 'empty'}" data-slot="${i}" style="--i:${i}" title="${u ? u.name + ' — ' + u.desc.replace('Ability · ', '') : 'Empty ability slot'}">
+                 <span class="abil-ico">${u ? u.icon : ''}</span><kbd>${i + 1}</kbd></button>`
+            : `<span class="abil-slot small ${u ? 'filled ' + u.effect : 'empty'}" style="--i:${i}" title="${u ? 'Enemy holds ' + u.name : 'Empty'}">${u ? u.icon : ''}</span>`;
+        }
+        el.innerHTML = html;
+      };
+      draw(this.abilMe, me, true);
+      draw(this.abilOp, op, false);
+    },
+
+    // ---------- crit zone (on the enemy bot) ----------
+    zoneTick() {
+      requestAnimationFrame(() => this.zoneTick());
+      const z = this._zone, el = this.zoneEl;
+      if (!z || !el) return;
+      if (!z.playing) { el.style.display = 'none'; return; }
+      const t = z.t + (performance.now() - z.at) / 1000;
+      const p = critZone(z.seed, t, z.matrix);
+      const box = this.el.opBot;
+      const w = box.clientWidth, h = box.clientHeight;
+      el.style.display = '';
+      el.style.width = el.style.height = (p.r * 2 * w) + 'px';
+      el.style.left = (p.x * w) + 'px';
+      el.style.top = (p.y * h) + 'px';
     },
 
     card(tier, idx) { return this.el.shop.querySelector(`.card[data-tier="${tier}"][data-idx="${idx}"]`); },
@@ -440,6 +523,7 @@
           if (loser && s.players[loser].hp <= 0) (loser === myId ? this.el.meBot : this.el.opBot).classList.add('dead');
           draw ? SFX.tick() : won ? SFX.win() : SFX.lose();
           const me = s.players[myId], op = s.players[myId === 'p1' ? 'p2' : 'p1'];
+          const pct = st => st.attacks ? Math.round(st.critHits / st.attacks * 100) + '%' : '—';
           const row = (label, a, b) => `<div class="l">${a}</div><div class="m">${label}</div><div class="r">${b}</div>`;
           $('ovStats').innerHTML =
             row('', me.name, op.name) +
@@ -450,6 +534,7 @@
             row('Clicks', me.stats.clicks, op.stats.clicks) +
             row('Avg CPS', me.stats.avgCps.toFixed(1), op.stats.avgCps.toFixed(1)) +
             row('Peak CPS', me.stats.peakCps.toFixed(1), op.stats.peakCps.toFixed(1)) +
+            row('Crit zone hits', pct(me.stats), pct(op.stats)) +
             row('Upgrades', Object.values(me.upgrades).reduce((a, b) => a + b, 0), Object.values(op.upgrades).reduce((a, b) => a + b, 0));
           this.hpGraph(s, myId);
         }
